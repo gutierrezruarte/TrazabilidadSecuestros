@@ -185,6 +185,7 @@
         // --- ESTADO DE LA APLICACION ---
         let currentUser = null;
         let allProcedures = [];
+        let proceduresPromise = null; // Promise for data fetching
 
         // --- DATOS MAESTROS ---
         const ROLES = ['Servicio de Guardia', 'G.E.A.R.', 'Body Scanner', 'Jefe de Seguridad', 'Secretaría de Seguridad o Dirección', 'Director', 'Departamento Seguridad', 'Departamento Inspección', 'Admin'];
@@ -298,19 +299,25 @@
 
         function handleLogout() {
             currentUser = null;
+            allProcedures = [];
+            proceduresPromise = null;
             sessionStorage.removeItem('currentUser');
             showLogin();
         }
         
-        async function fetchAllProcedures() {
-            try {
-                const querySnapshot = await getDocs(collection(db, "procedures"));
-                allProcedures = querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
-            } catch (error) {
-                console.error("Error al cargar procedimientos desde Firestore: ", error);
-                showMessage('Error de Conexión', 'No se pudieron cargar los procedimientos. Verifique las reglas de seguridad de Firestore.');
-                allProcedures = [];
+        function fetchAllProcedures() {
+            if (!proceduresPromise) {
+                proceduresPromise = getDocs(collection(db, "procedures"))
+                    .then(querySnapshot => {
+                        allProcedures = querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
+                    })
+                    .catch(error => {
+                        console.error("Error al cargar procedimientos desde Firestore: ", error);
+                        showMessage('Error de Conexión', 'No se pudieron cargar los procedimientos. Verifique las reglas de seguridad de Firestore.');
+                        allProcedures = [];
+                    });
             }
+            return proceduresPromise;
         }
 
         function showLogin() {
@@ -318,7 +325,7 @@
             document.getElementById('main-portal').classList.add('hidden');
         }
 
-        async function showPortal() {
+        function showPortal() {
             document.getElementById('login-section').classList.add('hidden');
             document.getElementById('main-portal').classList.remove('hidden');
             document.getElementById('user-info').innerHTML = `
@@ -326,17 +333,8 @@
                 <p class="text-xs text-gray-300">${currentUser.role}</p>
             `;
             setupMenu();
-
-            const contentArea = document.getElementById('content-area');
-            contentArea.innerHTML = `
-                <div class="text-center p-10">
-                    <i class="fas fa-spinner fa-spin text-4xl text-accent-500"></i>
-                    <p class="mt-4 text-lg text-gray-600">Cargando datos de procedimientos...</p>
-                </div>
-            `;
-            
-            await fetchAllProcedures();
-            
+            // Fetch data in the background without blocking UI
+            fetchAllProcedures();
             navigateTo('welcome');
         }
         
@@ -366,7 +364,7 @@
             });
         }
         
-        function navigateTo(viewId) {
+        async function navigateTo(viewId) {
             document.querySelectorAll('#main-menu button').forEach(btn => {
                 btn.classList.remove('active');
             });
@@ -381,6 +379,13 @@
                     <p class="mt-4 text-lg text-gray-600">Seleccione una opción del menú para comenzar.</p>
                 </div>`;
 
+            const loadingView = `
+                <div class="text-center p-10">
+                    <i class="fas fa-spinner fa-spin text-4xl text-accent-500"></i>
+                    <p class="mt-4 text-lg text-gray-600">Cargando datos...</p>
+                </div>
+            `;
+
             switch (viewId) {
                 case 'welcome':
                      contentArea.innerHTML = welcomeView;
@@ -389,9 +394,13 @@
                     renderLoadProcedureForm(contentArea);
                     break;
                 case 'summary':
+                    contentArea.innerHTML = loadingView;
+                    await fetchAllProcedures();
                     renderSummaryView(contentArea);
                     break;
                 case 'quantitative':
+                    contentArea.innerHTML = loadingView;
+                    await fetchAllProcedures();
                     renderQuantitativeView(contentArea);
                     break;
                 case 'incidents':
@@ -661,8 +670,8 @@
                     }
                     
                     const dateValue = document.getElementById('proc-datetime').value;
-                    const [year, month, day] = dateValue.split('-').map(Number);
-                    const localDate = new Date(year, month - 1, day);
+                    const dateParts = dateValue.split('-');
+                    const localDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
 
                     const procedureData = {
                         datetime: Timestamp.fromDate(localDate),
@@ -679,6 +688,7 @@
                     const docRef = await addDoc(collection(db, "procedures"), procedureData);
                     console.log("Documento guardado con ID: ", docRef.id);
                     
+                    proceduresPromise = null; // Invalidate cache
                     await fetchAllProcedures();
                     showMessage('Éxito', 'Procedimiento guardado correctamente.');
                     navigateTo('load-procedure');
@@ -846,7 +856,6 @@
                             </tr>
                         </thead>
                         <tbody id="summary-table-body">
-                            <!-- Data will be loaded here -->
                         </tbody>
                     </table>
                 </div>
@@ -874,7 +883,7 @@
 
             const tableBody = document.getElementById('summary-table-body');
             if (filteredData.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-gray-500">No hay datos para mostrar.</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-gray-500">No hay datos para mostrar con los filtros seleccionados.</td></tr>`;
                 return;
             }
 
@@ -899,7 +908,6 @@
                 `;
             }).join('');
         }
-
 
         function setupSummaryFilters() {
             const container = document.getElementById('sector-filter-container');
@@ -930,7 +938,7 @@
             });
             
             document.addEventListener('click', (event) => {
-                if (!container.contains(event.target)) {
+                if (!container || !container.contains(event.target)) {
                     optionsDiv.classList.add('hidden');
                 }
             });
@@ -939,6 +947,17 @@
         function renderQuantitativeView(container) {
              container.innerHTML = `
                 <h2 class="text-3xl font-bold text-inst-dark mb-6">Resumen Cuantitativo</h2>
+                <div class="p-4 bg-white rounded-xl shadow-lg border mb-6 flex flex-wrap items-center gap-4">
+                    <div class="flex items-center gap-2">
+                        <label for="quant-filter-start-date" class="text-sm font-medium">Desde:</label>
+                        <input type="date" id="quant-filter-start-date" class="border-gray-300 rounded-lg py-1 px-2 text-sm shadow-sm">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label for="quant-filter-end-date" class="text-sm font-medium">Hasta:</label>
+                        <input type="date" id="quant-filter-end-date" class="border-gray-300 rounded-lg py-1 px-2 text-sm shadow-sm">
+                    </div>
+                    <button id="quant-apply-filter-btn" class="px-4 py-2 text-sm font-bold text-white bg-accent-600 rounded-lg hover:bg-accent-700">Filtrar</button>
+                </div>
                  <div class="bg-white rounded-xl shadow-lg border overflow-x-auto">
                     <table class="w-full text-sm text-left text-gray-600">
                         <thead class="text-xs text-gray-700 uppercase bg-gray-100 sticky top-0">
@@ -949,9 +968,31 @@
                 </div>
              `;
              loadQuantitativeData();
+             setupQuantitativeFilters();
+        }
+
+        function setupQuantitativeFilters() {
+            document.getElementById('quant-apply-filter-btn').addEventListener('click', () => {
+                const startDate = document.getElementById('quant-filter-start-date').value;
+                const endDate = document.getElementById('quant-filter-end-date').value;
+                loadQuantitativeData({ startDate, endDate });
+            });
         }
         
-        function loadQuantitativeData() {
+        function loadQuantitativeData(filters = {}) {
+            let dataToProcess = [...allProcedures];
+
+            if (filters.startDate) {
+                const start = Timestamp.fromDate(new Date(filters.startDate));
+                dataToProcess = dataToProcess.filter(p => p.datetime.seconds >= start.seconds);
+            }
+            if (filters.endDate) {
+                const end = new Date(filters.endDate);
+                end.setDate(end.getDate() + 1);
+                const endTimestamp = Timestamp.fromDate(end);
+                dataToProcess = dataToProcess.filter(p => p.datetime.seconds < endTimestamp.seconds);
+            }
+
             const head = document.getElementById('quantitative-table-head');
             const body = document.getElementById('quantitative-table-body');
             
@@ -971,13 +1012,13 @@
                 });
             });
 
-            allProcedures.forEach(proc => {
+            dataToProcess.forEach(proc => {
                 proc.items.forEach(item => {
                     if (stats[item.subtype] && stats[item.subtype][proc.sector] !== undefined) {
                         let value = 0;
                         if(item.details.peso) value = parseFloat(item.details.peso) || 0;
-                        else if(item.details.cantidad) value = parseInt(item.details.cantidad, 10) || 1; // Default to 1 if not specified
-                        else if(item.subtype === 'OTROS' || item.subtype === 'PUNZOCORTANTES' || item.subtype === 'CELULAR' || item.subtype === 'CHIPS') value = 1;
+                        else if(item.details.cantidad) value = parseInt(item.details.cantidad, 10) || 1;
+                        else if(['OTROS', 'PUNZOCORTANTES', 'CELULAR', 'CHIPS'].includes(item.subtype)) value = 1;
 
                         stats[item.subtype][proc.sector] += value;
                     }
