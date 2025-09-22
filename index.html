@@ -308,7 +308,7 @@
                 allProcedures = querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
             } catch (error) {
                 console.error("Error al cargar procedimientos desde Firestore: ", error);
-                showMessage('Error de Conexión', 'No se pudieron cargar los procedimientos desde la base de datos. Verifique las reglas de seguridad de Firestore.');
+                showMessage('Error de Conexión', 'No se pudieron cargar los procedimientos. Verifique las reglas de seguridad de Firestore.');
                 allProcedures = [];
             }
         }
@@ -398,7 +398,7 @@
                     contentArea.innerHTML = `
                         <h2 class="text-3xl font-bold text-inst-dark mb-4">Gestión de Incidentes</h2>
                         <div class="bg-white p-6 rounded-xl shadow-lg border">
-                            <p class="text-gray-600">Esta sección está en desarrollo. Aquí se gestionarán las solicitudes de eliminación de procedimientos.</p>
+                            <p class="text-gray-600">Esta sección está en desarrollo.</p>
                         </div>
                     `;
                     break;
@@ -406,7 +406,7 @@
                     contentArea.innerHTML = `
                         <h2 class="text-3xl font-bold text-inst-dark mb-4">Administración de Usuarios</h2>
                         <div class="bg-white p-6 rounded-xl shadow-lg border">
-                        <p class="text-gray-600">Esta sección está en desarrollo. Aquí el administrador podrá crear, editar y eliminar usuarios.</p>
+                        <p class="text-gray-600">Esta sección está en desarrollo.</p>
                         </div>
                     `;
                     break;
@@ -632,39 +632,63 @@
                 resetItemForm();
             });
 
-            document.getElementById('procedure-form').addEventListener('submit', async (e) => {
+            const procedureForm = document.getElementById('procedure-form');
+            procedureForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
+                const submitButton = procedureForm.querySelector('button[type="submit"]');
+
                 if (tempItems.length === 0) {
                     showMessage('Error', 'Debe añadir al menos un elemento secuestrado al procedimiento.');
                     return;
                 }
 
-                let organo = document.getElementById('proc-organo').value;
-                if(organo === 'otros') {
-                    organo = document.getElementById('proc-organo-otro').value.trim();
+                const tipoSecuestro = document.querySelector('input[name="tipoSecuestro"]:checked').value;
+                const responsableData = getResponsableData();
+
+                if (tipoSecuestro === 'CON RESPONSABLE' && (!responsableData || !responsableData.tipo)) {
+                    showMessage('Validación Fallida', 'Si el secuestro es "Con Responsable", debe seleccionar un tipo (Interno, Visita o Agente).');
+                    return;
                 }
 
-                const procedureData = {
-                    datetime: Timestamp.fromDate(new Date(document.getElementById('proc-datetime').value)),
-                    sector: document.getElementById('proc-sector').value,
-                    organo: organo,
-                    tipoSecuestro: document.querySelector('input[name="tipoSecuestro"]:checked').value,
-                    responsable: getResponsableData(),
-                    items: tempItems,
-                    createdBy: currentUser.username,
-                    createdByName: currentUser.name,
-                    createdAt: Timestamp.now()
-                };
-                
+                const originalButtonText = submitButton.innerHTML;
+                submitButton.disabled = true;
+                submitButton.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Guardando...`;
+
                 try {
+                    let organo = document.getElementById('proc-organo').value;
+                    if (organo === 'otros') {
+                        organo = document.getElementById('proc-organo-otro').value.trim();
+                    }
+                    
+                    const dateValue = document.getElementById('proc-datetime').value;
+                    const [year, month, day] = dateValue.split('-').map(Number);
+                    const localDate = new Date(year, month - 1, day);
+
+                    const procedureData = {
+                        datetime: Timestamp.fromDate(localDate),
+                        sector: document.getElementById('proc-sector').value,
+                        organo: organo,
+                        tipoSecuestro: tipoSecuestro,
+                        responsable: responsableData,
+                        items: tempItems,
+                        createdBy: currentUser.username,
+                        createdByName: currentUser.name,
+                        createdAt: Timestamp.now()
+                    };
+
                     const docRef = await addDoc(collection(db, "procedures"), procedureData);
-                    console.log("Document written with ID: ", docRef.id);
+                    console.log("Documento guardado con ID: ", docRef.id);
+                    
                     await fetchAllProcedures();
-                    showMessage('Éxito', 'Procedimiento guardado correctamente en la base de datos.');
+                    showMessage('Éxito', 'Procedimiento guardado correctamente.');
                     navigateTo('load-procedure');
+
                 } catch (error) {
                     console.error("Error al guardar el documento: ", error);
-                    showMessage('Error al Guardar', `No se pudo guardar el procedimiento. Verifique la consola para más detalles. Error: ${error.message}`);
+                    showMessage('Error al Guardar', `No se pudo guardar el procedimiento. Error: ${error.message}`);
+                } finally {
+                    submitButton.disabled = false;
+                    submitButton.innerHTML = originalButtonText;
                 }
             });
         }
@@ -756,15 +780,19 @@
             }
 
             const tipoResponsableRadio = document.querySelector('input[name="tipoResponsable"]:checked');
-            if(!tipoResponsableRadio) return null;
+            if (!tipoResponsableRadio) {
+                return { tipo: null };
+            }
             
             const tipo = tipoResponsableRadio.value;
             const data = { tipo };
             const fieldsDiv = document.getElementById('responsable-specific-fields');
             
-            fieldsDiv.querySelectorAll('input').forEach(input => {
-                data[input.name] = input.value;
-            });
+            if (fieldsDiv) {
+                fieldsDiv.querySelectorAll('input').forEach(input => {
+                    data[input.name] = input.value;
+                });
+            }
 
             return data;
         }
@@ -948,8 +976,8 @@
                     if (stats[item.subtype] && stats[item.subtype][proc.sector] !== undefined) {
                         let value = 0;
                         if(item.details.peso) value = parseFloat(item.details.peso) || 0;
-                        else if(item.details.cantidad) value = parseInt(item.details.cantidad, 10) || 0;
-                        else if(item.subtype === 'OTROS' || item.subtype === 'PUNZOCORTANTES') value = 1;
+                        else if(item.details.cantidad) value = parseInt(item.details.cantidad, 10) || 1; // Default to 1 if not specified
+                        else if(item.subtype === 'OTROS' || item.subtype === 'PUNZOCORTANTES' || item.subtype === 'CELULAR' || item.subtype === 'CHIPS') value = 1;
 
                         stats[item.subtype][proc.sector] += value;
                     }
