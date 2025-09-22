@@ -291,19 +291,30 @@
         
         async function handleLogin(e) {
             e.preventDefault();
+            console.log("Comenzando intento de inicio de sesión...");
             const username = e.target.username.value;
             const password = e.target.password.value;
             const errorP = document.getElementById('login-error');
             errorP.textContent = '';
             
+            console.log("Usuario del formulario:", username);
+            console.log("Contraseña del formulario:", password);
+
             const user = usersDB[username];
+            console.log("Objeto de usuario encontrado en la BD local:", user);
 
             if (user && user.password === password) {
+                console.log("¡Éxito! Usuario y contraseña coinciden.");
                 currentUser = { username, ...user };
                 sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+                
+                console.log("Cargando procedimientos...");
                 await fetchAllProcedures();
+                console.log("Procedimientos cargados. Mostrando el portal.");
+                
                 showPortal();
             } else {
+                console.error("Fallo el inicio de sesión. Usuario no encontrado o contraseña incorrecta.");
                 errorP.textContent = 'Usuario o contraseña incorrectos.';
             }
         }
@@ -319,8 +330,8 @@
                 const querySnapshot = await getDocs(collection(db, "procedures"));
                 allProcedures = querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
             } catch (error) {
-                console.error("Error fetching procedures: ", error);
-                showMessage('Error', 'No se pudieron cargar los procedimientos desde la base de datos.');
+                console.error("Error al cargar procedimientos desde Firestore: ", error);
+                showMessage('Error de Conexión', 'No se pudieron cargar los procedimientos desde la base de datos. Verifique las reglas de seguridad de Firestore.');
                 allProcedures = [];
             }
         }
