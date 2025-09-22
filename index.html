@@ -80,8 +80,8 @@
                 <p class="text-center text-gray-500 mb-6 text-sm">Inicie sesión para continuar</p>
                 <form id="login-form" class="space-y-4">
                     <div>
-                        <label for="username" class="block text-sm font-medium text-gray-700 text-left mb-1">Usuario</label>
-                        <input type="text" id="username" name="username" required
+                        <label for="email" class="block text-sm font-medium text-gray-700 text-left mb-1">Correo Electrónico</label>
+                        <input type="email" id="email" name="email" required
                                class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-accent-500">
                     </div>
                     <div>
@@ -166,16 +166,12 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
             getAuth, 
-            signInAnonymously, 
-            signInWithCustomToken, 
             onAuthStateChanged,
-            createUserWithEmailAndPassword,
             signInWithEmailAndPassword,
             signOut
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { 
             getFirestore,
-            setDoc,
             doc,
             getDoc,
             collection,
@@ -183,21 +179,18 @@
             getDocs,
             query,
             where,
-            updateDoc,
-            deleteDoc,
-            serverTimestamp,
-            onSnapshot
+            Timestamp
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURACION DE FIREBASE (USAR VARIABLES GLOBALES) ---
-        const firebaseConfig = {
+         const firebaseConfig = {
             apiKey: "AIzaSyCm8rUlizlnKoYnVNgwQXOMf4ISgT8Sdco",
             authDomain: "trazabiidadsecuestros.firebaseapp.com",
             projectId: "trazabiidadsecuestros",
             storageBucket: "trazabiidadsecuestros.firebasestorage.app",
             messagingSenderId: "609454303222",
-            appId: "1:609454303222:web:feea35250e26d37de889d7",
-            measurementId: "G-L9RTEHFHHB"
+            appId: "1:609454303222:web:4e5bf4f271850cf5e889d7",
+            measurementId: "G-GKKZ0TE1F4"
         };
             
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -208,6 +201,7 @@
 
         // --- ESTADO DE LA APLICACION ---
         let currentUser = null;
+        let allProcedures = []; // Cache for procedures
 
         // --- DATOS MAESTROS ---
         const ROLES = ['Servicio de Guardia', 'G.E.A.R.', 'Body Scanner', 'Jefe de Seguridad', 'Secretaría de Seguridad o Dirección', 'Director', 'Departamento Seguridad', 'Departamento Inspección', 'Admin'];
@@ -281,46 +275,63 @@
             cancelButton.onclick = close;
         }
 
-        const usersDB = {
-            '36219951': { password: 'admin', role: 'Admin', scope: SECTORES, name: 'Administrador' },
-            'guardia1': { password: '123', role: 'Servicio de Guardia', scope: ['C.C.N° 1 - MD1', 'C.C.N° 1 - M2'], name: 'Juan Perez' },
-            'gear1': { password: '123', role: 'G.E.A.R.', scope: ['E.P.N° 3', 'E.P.N° 4'], name: 'Maria Lopez' },
-            'scanner1': { password: '123', role: 'Body Scanner', scope: ['C.C.N° 2 - M1'], name: 'Carlos Gomez' },
-            'jefe1': { password: '123', role: 'Jefe de Seguridad', scope: SECTORES, name: 'Ana Rodriguez' },
-            'secretaria1': { password: '123', role: 'Secretaría de Seguridad o Dirección', scope: SECTORES, name: 'Lucia Fernandez' }
-        };
-
         async function initApp() {
             document.getElementById('login-form').addEventListener('submit', handleLogin);
             document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
-            const sessionUser = sessionStorage.getItem('currentUser');
-            if(sessionUser){
-                currentUser = JSON.parse(sessionUser);
-                showPortal();
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    const userDocRef = doc(db, "users", user.uid);
+                    const userDocSnap = await getDoc(userDocRef);
+                    if (userDocSnap.exists()) {
+                        currentUser = { uid: user.uid, email: user.email, ...userDocSnap.data() };
+                        await fetchAllProcedures();
+                        showPortal();
+                    } else {
+                        console.error("No user profile found in Firestore.");
+                        handleLogout();
+                    }
+                } else {
+                    currentUser = null;
+                    showLogin();
+                }
+            });
+        }
+        
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = e.target.email.value;
+            const password = e.target.password.value;
+            const errorP = document.getElementById('login-error');
+            errorP.textContent = '';
+
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                // onAuthStateChanged will handle the rest
+            } catch (error) {
+                console.error("Login failed:", error);
+                errorP.textContent = 'Correo o contraseña incorrectos.';
+            }
+        }
+
+        async function handleLogout() {
+            try {
+                await signOut(auth);
+                // onAuthStateChanged will handle UI change
+            } catch (error) {
+                console.error("Logout failed:", error);
             }
         }
         
-        function handleLogin(e) {
-            e.preventDefault();
-            const username = e.target.username.value;
-            const password = e.target.password.value;
-            const user = usersDB[username];
-
-            if (user && user.password === password) {
-                currentUser = { username, ...user };
-                sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
-                showPortal();
-                 document.getElementById('login-error').textContent = '';
-            } else {
-                document.getElementById('login-error').textContent = 'Usuario o contraseña incorrectos.';
+        async function fetchAllProcedures() {
+            try {
+                const querySnapshot = await getDocs(collection(db, "procedures"));
+                allProcedures = querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
+            } catch (error) {
+                console.error("Error fetching procedures: ", error);
+                showMessage('Error', 'No se pudieron cargar los procedimientos desde la base de datos.');
+                allProcedures = [];
             }
-        }
-
-        function handleLogout() {
-            currentUser = null;
-            sessionStorage.removeItem('currentUser');
-            showLogin();
         }
 
         function showLogin() {
@@ -632,7 +643,7 @@
                 resetItemForm();
             });
 
-            document.getElementById('procedure-form').addEventListener('submit', (e) => {
+            document.getElementById('procedure-form').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 if (tempItems.length === 0) {
                     showMessage('Error', 'Debe añadir al menos un elemento secuestrado al procedimiento.');
@@ -645,19 +656,27 @@
                 }
 
                 const procedureData = {
-                    datetime: document.getElementById('proc-datetime').value,
+                    datetime: Timestamp.fromDate(new Date(document.getElementById('proc-datetime').value)),
                     sector: document.getElementById('proc-sector').value,
                     organo: organo,
                     tipoSecuestro: document.querySelector('input[name="tipoSecuestro"]:checked').value,
                     responsable: getResponsableData(),
                     items: tempItems,
-                    createdBy: currentUser.username,
-                    createdAt: new Date().toISOString()
+                    createdBy: currentUser.uid,
+                    createdByName: currentUser.name,
+                    createdAt: Timestamp.now()
                 };
                 
-                console.log("Saving procedure: ", procedureData);
-                showMessage('Éxito', 'Procedimiento guardado correctamente (simulación).');
-                navigateTo('load-procedure');
+                try {
+                    const docRef = await addDoc(collection(db, "procedures"), procedureData);
+                    console.log("Document written with ID: ", docRef.id);
+                    await fetchAllProcedures(); // Refresh local cache
+                    showMessage('Éxito', 'Procedimiento guardado correctamente en la base de datos.');
+                    navigateTo('load-procedure');
+                } catch (error) {
+                    console.error("Error adding document: ", error);
+                    showMessage('Error', 'No se pudo guardar el procedimiento.');
+                }
             });
         }
         
@@ -782,7 +801,6 @@
                         <input type="date" id="filter-end-date" class="border-gray-300 rounded-lg py-1 px-2 text-sm shadow-sm">
                     </div>
                     
-                    <!-- Sector Filter Dropdown -->
                     <div class="relative" id="sector-filter-container">
                          <label class="text-sm font-medium">Sector/Lugar:</label>
                         <button id="sector-filter-btn" type="button" class="mt-1 inline-flex justify-between w-64 rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-500">
@@ -796,7 +814,7 @@
                         </div>
                     </div>
 
-                    <button id="filter-btn" class="px-4 py-2 text-sm font-bold text-white bg-accent-600 rounded-lg hover:bg-accent-700">Filtrar</button>
+                    <button id="apply-filter-btn" class="px-4 py-2 text-sm font-bold text-white bg-accent-600 rounded-lg hover:bg-accent-700">Filtrar</button>
                 </div>
                 <div class="bg-white rounded-xl shadow-lg border overflow-x-auto">
                     <table class="w-full text-sm text-left text-gray-600">
@@ -811,13 +829,61 @@
                             </tr>
                         </thead>
                         <tbody id="summary-table-body">
-                            <tr><td colspan="6" class="text-center p-8 text-gray-500">No hay datos para mostrar.</td></tr>
+                            <!-- Data will be loaded here -->
                         </tbody>
                     </table>
                 </div>
              `;
+             loadAndDisplaySummaryData();
              setupSummaryFilters();
         }
+
+        function loadAndDisplaySummaryData(filters = {}) {
+            let filteredData = [...allProcedures];
+
+            if (filters.startDate) {
+                const start = Timestamp.fromDate(new Date(filters.startDate));
+                filteredData = filteredData.filter(p => p.datetime.seconds >= start.seconds);
+            }
+            if (filters.endDate) {
+                // Add 1 day to include the end date fully
+                const end = new Date(filters.endDate);
+                end.setDate(end.getDate() + 1);
+                const endTimestamp = Timestamp.fromDate(end);
+                filteredData = filteredData.filter(p => p.datetime.seconds < endTimestamp.seconds);
+            }
+            if (filters.sectors && filters.sectors.length > 0) {
+                filteredData = filteredData.filter(p => filters.sectors.includes(p.sector));
+            }
+
+            const tableBody = document.getElementById('summary-table-body');
+            if (filteredData.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-gray-500">No hay datos para mostrar.</td></tr>`;
+                return;
+            }
+
+            tableBody.innerHTML = filteredData.map(proc => {
+                const date = proc.datetime.toDate().toLocaleDateString('es-AR');
+                const itemsSummary = proc.items.map(item => `${item.subtype} (${item.type})`).join(', ');
+                let responsableInfo = 'N/A';
+                if (proc.responsable) {
+                    responsableInfo = proc.responsable.tipo || 'Sin especificar';
+                     if(proc.responsable.tipo === 'interno') responsableInfo = `Interno: ${proc.responsable['resp-nombre'] || ''}`;
+                }
+
+                return `
+                    <tr class="hover:bg-gray-50 border-b">
+                        <td class="px-6 py-4">${date}</td>
+                        <td class="px-6 py-4">${proc.sector}</td>
+                        <td class="px-6 py-4">${proc.organo}</td>
+                        <td class="px-6 py-4">${proc.tipoSecuestro}</td>
+                        <td class="px-6 py-4">${responsableInfo}</td>
+                        <td class="px-6 py-4 text-xs">${itemsSummary}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
 
         function setupSummaryFilters() {
             const container = document.getElementById('sector-filter-container');
@@ -827,40 +893,26 @@
 
             if (!container || !btn || !optionsDiv) return;
 
-            btn.addEventListener('click', () => {
-                optionsDiv.classList.toggle('hidden');
-            });
+            btn.addEventListener('click', () => optionsDiv.classList.toggle('hidden'));
 
             const checkboxes = optionsDiv.querySelectorAll('input[type="checkbox"]');
             checkboxes.forEach(checkbox => {
                 checkbox.addEventListener('change', () => {
-                    const selected = Array.from(checkboxes)
-                        .filter(i => i.checked)
-                        .map(i => i.value);
-                    
-                    if (selected.length === 0) {
-                        filterText.textContent = 'Todos los sectores';
-                    } else if (selected.length === 1) {
-                        filterText.textContent = selected[0];
-                    } else {
-                        filterText.textContent = `${selected.length} sectores seleccionados`;
-                    }
+                    const selected = Array.from(checkboxes).filter(i => i.checked).map(i => i.value);
+                    if (selected.length === 0) filterText.textContent = 'Todos los sectores';
+                    else if (selected.length === 1) filterText.textContent = selected[0];
+                    else filterText.textContent = `${selected.length} sectores seleccionados`;
                 });
             });
 
-            document.getElementById('filter-btn').addEventListener('click', () => {
+            document.getElementById('apply-filter-btn').addEventListener('click', () => {
                 const startDate = document.getElementById('filter-start-date').value;
                 const endDate = document.getElementById('filter-end-date').value;
-                const selectedSectors = Array.from(checkboxes)
-                        .filter(i => i.checked)
-                        .map(i => i.value);
+                const selectedSectors = Array.from(checkboxes).filter(i => i.checked).map(i => i.value);
                 
-                console.log('Filtrando por:', { startDate, endDate, selectedSectors });
-                showMessage('Filtro Aplicado', `Se aplicó un filtro. Revisa la consola para ver los valores seleccionados. Start: ${startDate}, End: ${endDate}, Sectors: ${selectedSectors.join(', ')}`);
-                // Here you would add the logic to reload the table with the applied filters.
+                loadAndDisplaySummaryData({ startDate, endDate, sectors: selectedSectors });
             });
             
-            // Close dropdown if clicked outside
             document.addEventListener('click', (event) => {
                 if (!container.contains(event.target)) {
                     optionsDiv.classList.add('hidden');
@@ -894,20 +946,41 @@
             headHtml += '<th scope="col" class="px-6 py-3 text-center font-bold bg-gray-200">Total</th>';
             head.innerHTML = headHtml;
             
-            let bodyHtml = '';
+            const stats = {};
             const allItems = ['COCAINA', 'MARIHUANA', 'PSICOFÁRMACOS', 'ALCOHOL', 'CELULAR', 'CHIPS', 'BATERÍAS', 'CARGADORES', 'CABLES USB', 'AURICULARES', 'PLAQUETA', 'PUNZOCORTANTES', 'OTROS'];
+            allItems.forEach(item => {
+                stats[item] = {};
+                SECTORES.forEach(sector => {
+                    stats[item][sector] = 0;
+                });
+            });
+
+            allProcedures.forEach(proc => {
+                proc.items.forEach(item => {
+                    if (stats[item.subtype] && stats[item.subtype][proc.sector] !== undefined) {
+                        let value = 0;
+                        if(item.details.peso) value = parseFloat(item.details.peso) || 0;
+                        else if(item.details.cantidad) value = parseInt(item.details.cantidad, 10) || 0;
+                        else if(item.subtype === 'OTROS' || item.subtype === 'PUNZOCORTANTES') value = 1;
+
+                        stats[item.subtype][proc.sector] += value;
+                    }
+                });
+            });
             
+            let bodyHtml = '';
             allItems.forEach(item => {
                 let rowTotal = 0;
-                let rowHtml = `
-                    <tr class="hover:bg-gray-50">
+                let rowHtml = `<tr class="hover:bg-gray-50">
                         <td class="px-6 py-4 font-medium whitespace-nowrap text-gray-900">${item}</td>`;
-                SECTORES.forEach(() => {
-                    const randomValue = Math.floor(Math.random() * 5);
-                    rowTotal += randomValue;
-                    rowHtml += `<td class="px-2 py-4 text-center">${randomValue > 0 ? randomValue : '-'}</td>`;
+                
+                SECTORES.forEach(sector => {
+                    const value = stats[item][sector] || 0;
+                    rowTotal += value;
+                    rowHtml += `<td class="px-2 py-4 text-center">${value > 0 ? value.toFixed(1).replace('.0', '') : '-'}</td>`;
                 });
-                rowHtml += `<td class="px-6 py-4 text-center font-bold text-accent-700 bg-gray-100">${rowTotal}</td></tr>`;
+
+                rowHtml += `<td class="px-6 py-4 text-center font-bold text-accent-700 bg-gray-100">${rowTotal.toFixed(1).replace('.0', '')}</td></tr>`;
                 bodyHtml += rowHtml;
             });
             body.innerHTML = bodyHtml;
@@ -918,3 +991,4 @@
     </script>
 </body>
 </html>
+
