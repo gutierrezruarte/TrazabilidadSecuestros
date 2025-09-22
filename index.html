@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal de Trazabilidad y Síntesis de Secuestros</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'inst-dark': '#111827',
+                        'inst-light': '#F9FAFB',
+                        'inst-text-dark': '#D1D5DB',
+                        'inst-text-light': '#374151',
+                        'accent': {
+                            '50': '#f0f9ff',
+                            '100': '#e0f2fe',
+                            '200': '#bae6fd',
+                            '300': '#7dd3fc',
+                            '400': '#38bdf8',
+                            '500': '#0ea5e9',
+                            '600': '#0284c7',
+                            '700': '#0369a1',
+                            '800': '#075985',
+                            '900': '#0c4a6e',
+                        },
+                    }
+                },
+                fontFamily: {
+                    sans: ['Inter', 'sans-serif'],
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .sidebar-btn {
+            transition: all 0.2s ease-in-out;
+            color: var(--inst-text-dark, #D1D5DB);
+        }
+        .sidebar-btn:hover {
+            background-color: #374151; /* gray-700 */
+            color: #FFFFFF;
+        }
+        .sidebar-btn.active {
+            background-color: #0ea5e9; /* accent-500 */
+            color: #FFFFFF;
+            font-weight: 600;
+        }
+        .modal-backdrop {
+            background-color: rgba(0,0,0,0.6);
+        }
+        .table-container {
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        /* Scrollbar styles */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #9ca3af; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+    </style>
+</head>
+<body class="bg-inst-light text-inst-text-light">
+
+    <!-- Seccion de Login -->
+    <div id="login-section" class="min-h-screen flex items-center justify-center p-4">
+        <div class="w-full max-w-sm">
+            <img src="https://raw.githubusercontent.com/gutierrezruarte/BibliotecaSPC/main/Escudo-1-279x300-removebg-preview.png" alt="Escudo Institucional" class="mx-auto mb-6 h-32 w-32 object-contain" onerror="this.src='https://placehold.co/128x128/111827/FFFFFF?text=Escudo';">
+            <div class="bg-white p-8 rounded-xl shadow-2xl w-full border border-gray-200">
+                <h2 class="text-2xl font-bold text-inst-dark mb-2 text-center">Control de Trazabilidad</h2>
+                <p class="text-center text-gray-500 mb-6 text-sm">Inicie sesión para continuar</p>
+                <form id="login-form" class="space-y-4">
+                    <div>
+                        <label for="username" class="block text-sm font-medium text-gray-700 text-left mb-1">Usuario</label>
+                        <input type="text" id="username" name="username" required
+                               class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-accent-500">
+                    </div>
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700 text-left mb-1">Contraseña</label>
+                        <input type="password" id="password" name="password" required
+                               class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-accent-500">
+                    </div>
+                    <div>
+                        <button type="submit"
+                                class="w-full mt-2 bg-accent-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-accent-700 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-opacity-50 transition-colors">
+                            Iniciar Sesión
+                        </button>
+                    </div>
+                </form>
+                <p id="login-error" class="text-sm text-center text-red-600 mt-4"></p>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Portal Principal -->
+    <div id="main-portal" class="hidden h-screen">
+        <div class="flex h-full">
+            <!-- Sidebar -->
+            <aside class="w-72 bg-inst-dark text-inst-text-dark p-4 flex flex-col justify-between shadow-lg">
+                <div>
+                     <div class="text-center mb-6 pt-2">
+                        <img src="https://raw.githubusercontent.com/gutierrezruarte/BibliotecaSPC/main/Escudo-1-279x300-removebg-preview.png" alt="Escudo Institucional" class="mx-auto mb-3 h-20 w-20 object-contain" onerror="this.src='https://placehold.co/80x80/111827/FFFFFF?text=Escudo';">
+                        <h1 class="text-xl font-semibold text-accent-400">Trazabilidad</h1>
+                    </div>
+                    <nav id="main-menu" class="space-y-2 px-2">
+                        <!-- Los botones del menu se generarán dinámicamente -->
+                    </nav>
+                </div>
+                <div class="px-2">
+                    <div id="user-info" class="text-center text-sm text-gray-400 mb-4 p-2 rounded-lg bg-gray-800"></div>
+                    <button id="logout-btn" class="w-full px-4 py-2 text-sm font-bold bg-red-600 rounded-lg hover:bg-red-700 transition-colors text-white">
+                        <i class="fas fa-sign-out-alt mr-2"></i>Cerrar Sesión
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Contenido Principal -->
+            <main class="flex-1 p-6 md:p-8 overflow-y-auto">
+                <div id="content-area">
+                    <div id="welcome-message" class="text-center">
+                        <h2 class="text-4xl font-bold text-accent-600">Bienvenido al Portal</h2>
+                        <p class="mt-4 text-lg text-gray-600">Seleccione una opción del menú para comenzar.</p>
+                    </div>
+                    <!-- Las vistas se cargarán aquí -->
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <!-- Modal para mensajes -->
+    <div id="message-modal" class="fixed inset-0 z-50 items-center justify-center hidden p-4 modal-backdrop">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-md w-full mx-auto border-t-4 border-accent-500">
+            <h3 id="message-modal-title" class="text-xl font-semibold text-inst-dark mb-3"></h3>
+            <p id="message-modal-text" class="mt-2 text-gray-600"></p>
+            <div class="mt-6 text-right">
+                <button id="message-modal-close" class="px-5 py-2 bg-accent-500 text-white text-sm font-semibold rounded-lg hover:bg-accent-600">Cerrar</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal para confirmacion -->
+    <div id="confirm-modal" class="fixed inset-0 z-50 items-center justify-center hidden p-4 modal-backdrop">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-md w-full mx-auto border-t-4 border-yellow-400">
+            <h3 id="confirm-modal-title" class="text-xl font-semibold text-inst-dark mb-3"></h3>
+            <p id="confirm-modal-text" class="mt-2 text-gray-600"></p>
+            <div class="mt-6 flex justify-end space-x-3">
+                 <button id="confirm-modal-cancel" class="px-5 py-2 bg-gray-200 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-300">Cancelar</button>
+                <button id="confirm-modal-ok" class="px-5 py-2 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken, 
+            onAuthStateChanged,
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword,
+            signOut
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore,
+            setDoc,
+            doc,
+            getDoc,
+            collection,
+            addDoc,
+            getDocs,
+            query,
+            where,
+            updateDoc,
+            deleteDoc,
+            serverTimestamp,
+            onSnapshot
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- CONFIGURACION DE FIREBASE (USAR VARIABLES GLOBALES) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyCm8rUlizlnKoYnVNgwQXOMf4ISgT8Sdco",
+            authDomain: "trazabiidadsecuestros.firebaseapp.com",
+            projectId: "trazabiidadsecuestros",
+            storageBucket: "trazabiidadsecuestros.firebasestorage.app",
+            messagingSenderId: "609454303222",
+            appId: "1:609454303222:web:feea35250e26d37de889d7",
+            measurementId: "G-L9RTEHFHHB"
+        };
+            
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // --- ESTADO DE LA APLICACION ---
+        let currentUser = null;
+
+        // --- DATOS MAESTROS ---
+        const ROLES = ['Servicio de Guardia', 'G.E.A.R.', 'Body Scanner', 'Jefe de Seguridad', 'Secretaría de Seguridad o Dirección', 'Director', 'Departamento Seguridad', 'Departamento Inspección', 'Admin'];
+        const SECTORES = ['C.C.N° 1 - MD1', 'C.C.N° 1 - M2', 'C.C.N° 1 - MAD', 'C.C.N° 1 - MX1', 'C.C.N° 1 - MX2', 'C.C.N° 2 - M1', 'C.C.N° 2 - M2', 'C.C.N° 2 - GRANJA', 'E.P.N° 3', 'E.P.N° 4', 'E.P.N° 5', 'E.P.N° 6', 'E.P.N° 7', 'E.P.N° 8', 'E.P.N° 9 - UCA'];
+        const ORGANOS = ['Servicio de Guardia', 'G.E.A.R.', 'Body Scanner', 'Jefe de Seguridad'];
+        const ELEMENTOS_CONFIG = {
+            'Sustancias': {
+                'COCAINA / MARIHUANA': [{ name: 'peso', label: 'Peso (en grs)', type: 'number', step: '0.1' }],
+                'PSICOFÁRMACOS': [{ name: 'cantidad', label: 'Cantidad (en uds)', type: 'number' }],
+                'ALCOHOL': [{ name: 'cantidad', label: 'Cantidad (en lts)', type: 'number', step: '0.1' }]
+            },
+            'Electrónicos': {
+                'CELULAR': [
+                    { name: 'marca', label: 'Marca', type: 'text' },
+                    { name: 'modelo', label: 'Modelo', type: 'text' },
+                    { name: 'imei1', label: 'IMEI 1', type: 'text' },
+                    { name: 'imei2', label: 'IMEI 2 (Opcional)', type: 'text' },
+                    { name: 'tieneCamara', label: 'Tiene cámara', type: 'checkbox' },
+                    { name: 'cantidadCamaras', label: 'Cantidad', type: 'number', dependsOn: 'tieneCamara', min: '1' }
+                ],
+                'CHIPS': [
+                    { name: 'operadora', label: 'Operadora', type: 'text' },
+                    { name: 'numeroIdentificatorio', label: 'Número identificatorio', type: 'text' }
+                ],
+                'BATERÍAS': [{ name: 'cantidad', label: 'Cantidad', type: 'number' }],
+                'CARGADORES': [{ name: 'cantidad', label: 'Cantidad', type: 'number' }],
+                'CABLES USB': [{ name: 'cantidad', label: 'Cantidad', type: 'number' }],
+                'AURICULARES': [{ name: 'cantidad', label: 'Cantidad', type: 'number' }],
+                'PLAQUETA': [{ name: 'cantidad', label: 'Cantidad', type: 'number' }]
+            },
+            'Otros': {
+                'PUNZOCORTANTES': [{ name: 'cantidad', label: 'Cantidad', type: 'number' }],
+                'OTROS': [{ name: 'descripcion', label: 'Descripción', type: 'textarea' }]
+            }
+        };
+
+        // --- LÓGICA DE LA APLICACIÓN ---
+        
+        function showMessage(title, text) {
+            document.getElementById('message-modal-title').textContent = title;
+            document.getElementById('message-modal-text').textContent = text;
+            document.getElementById('message-modal').classList.remove('hidden');
+            document.getElementById('message-modal').classList.add('flex');
+        }
+
+        document.getElementById('message-modal-close').addEventListener('click', () => {
+            document.getElementById('message-modal').classList.add('hidden');
+            document.getElementById('message-modal').classList.remove('flex');
+        });
+
+        function showConfirm(title, text, onConfirm) {
+            document.getElementById('confirm-modal-title').textContent = title;
+            document.getElementById('confirm-modal-text').textContent = text;
+            document.getElementById('confirm-modal').classList.remove('hidden');
+            document.getElementById('confirm-modal').classList.add('flex');
+
+            const okButton = document.getElementById('confirm-modal-ok');
+            const cancelButton = document.getElementById('confirm-modal-cancel');
+
+            const close = () => {
+                document.getElementById('confirm-modal').classList.add('hidden');
+                document.getElementById('confirm-modal').classList.remove('flex');
+                okButton.replaceWith(okButton.cloneNode(true));
+            };
+            
+            okButton.onclick = () => {
+                onConfirm();
+                close();
+            };
+            cancelButton.onclick = close;
+        }
+
+        const usersDB = {
+            '36219951': { password: 'admin', role: 'Admin', scope: SECTORES, name: 'Administrador' },
+            'guardia1': { password: '123', role: 'Servicio de Guardia', scope: ['C.C.N° 1 - MD1', 'C.C.N° 1 - M2'], name: 'Juan Perez' },
+            'gear1': { password: '123', role: 'G.E.A.R.', scope: ['E.P.N° 3', 'E.P.N° 4'], name: 'Maria Lopez' },
+            'scanner1': { password: '123', role: 'Body Scanner', scope: ['C.C.N° 2 - M1'], name: 'Carlos Gomez' },
+            'jefe1': { password: '123', role: 'Jefe de Seguridad', scope: SECTORES, name: 'Ana Rodriguez' },
+            'secretaria1': { password: '123', role: 'Secretaría de Seguridad o Dirección', scope: SECTORES, name: 'Lucia Fernandez' }
+        };
+
+        async function initApp() {
+            document.getElementById('login-form').addEventListener('submit', handleLogin);
+            document.getElementById('logout-btn').addEventListener('click', handleLogout);
+
+            const sessionUser = sessionStorage.getItem('currentUser');
+            if(sessionUser){
+                currentUser = JSON.parse(sessionUser);
+                showPortal();
+            }
+        }
+        
+        function handleLogin(e) {
+            e.preventDefault();
+            const username = e.target.username.value;
+            const password = e.target.password.value;
+            const user = usersDB[username];
+
+            if (user && user.password === password) {
+                currentUser = { username, ...user };
+                sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+                showPortal();
+                 document.getElementById('login-error').textContent = '';
+            } else {
+                document.getElementById('login-error').textContent = 'Usuario o contraseña incorrectos.';
+            }
+        }
+
+        function handleLogout() {
+            currentUser = null;
+            sessionStorage.removeItem('currentUser');
+            showLogin();
+        }
+
+        function showLogin() {
+            document.getElementById('login-section').classList.remove('hidden');
+            document.getElementById('main-portal').classList.add('hidden');
+        }
+
+        function showPortal() {
+            document.getElementById('login-section').classList.add('hidden');
+            document.getElementById('main-portal').classList.remove('hidden');
+            document.getElementById('user-info').innerHTML = `
+                <p class="font-semibold text-white">${currentUser.name}</p>
+                <p class="text-xs text-gray-300">${currentUser.role}</p>
+            `;
+            setupMenu();
+            navigateTo('welcome');
+        }
+        
+        function setupMenu() {
+            const menu = document.getElementById('main-menu');
+            menu.innerHTML = '';
+            
+            const canLoad = ['Servicio de Guardia', 'G.E.A.R.', 'Body Scanner', 'Jefe de Seguridad', 'Admin'].includes(currentUser.role);
+            
+            const menuItems = [
+                { id: 'load-procedure', text: 'Cargar Nuevo Procedimiento', icon: 'fa-plus-circle', visible: canLoad },
+                { id: 'summary', text: 'Resumen de Secuestros', icon: 'fa-clipboard-list', visible: true },
+                { id: 'quantitative', text: 'Cuantitativas', icon: 'fa-chart-pie', visible: true },
+                { id: 'incidents', text: 'Incidentes', icon: 'fa-exclamation-triangle', visible: true },
+                { id: 'admin-users', text: 'Administrar Usuarios', icon: 'fa-users-cog', visible: currentUser.role === 'Admin' }
+            ];
+
+            menuItems.forEach(item => {
+                if (item.visible) {
+                    const button = document.createElement('button');
+                    button.id = `btn-${item.id}`;
+                    button.className = 'w-full text-left px-4 py-2.5 rounded-lg sidebar-btn text-sm';
+                    button.innerHTML = `<i class="fas ${item.icon} w-6 mr-2"></i> ${item.text}`;
+                    button.onclick = () => navigateTo(item.id);
+                    menu.appendChild(button);
+                }
+            });
+        }
+        
+        function navigateTo(viewId) {
+            document.querySelectorAll('#main-menu button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            const activeBtn = document.getElementById(`btn-${viewId}`);
+            if(activeBtn) {
+                activeBtn.classList.add('active');
+            }
+
+            const contentArea = document.getElementById('content-area');
+            const welcomeView = `<div id="welcome-message" class="text-center">
+                    <h2 class="text-4xl font-bold text-accent-600">Bienvenido al Portal</h2>
+                    <p class="mt-4 text-lg text-gray-600">Seleccione una opción del menú para comenzar.</p>
+                </div>`;
+
+            switch (viewId) {
+                case 'welcome':
+                     contentArea.innerHTML = welcomeView;
+                    break;
+                case 'load-procedure':
+                    renderLoadProcedureForm(contentArea);
+                    break;
+                case 'summary':
+                    renderSummaryView(contentArea);
+                    break;
+                case 'quantitative':
+                    renderQuantitativeView(contentArea);
+                    break;
+                case 'incidents':
+                    contentArea.innerHTML = `
+                        <h2 class="text-3xl font-bold text-inst-dark mb-4">Gestión de Incidentes</h2>
+                        <div class="bg-white p-6 rounded-xl shadow-lg border">
+                            <p class="text-gray-600">Esta sección está en desarrollo. Aquí se gestionarán las solicitudes de eliminación de procedimientos.</p>
+                        </div>
+                    `;
+                    break;
+                case 'admin-users':
+                    contentArea.innerHTML = `
+                        <h2 class="text-3xl font-bold text-inst-dark mb-4">Administración de Usuarios</h2>
+                        <div class="bg-white p-6 rounded-xl shadow-lg border">
+                        <p class="text-gray-600">Esta sección está en desarrollo. Aquí el administrador podrá crear, editar y eliminar usuarios.</p>
+                        </div>
+                    `;
+                    break;
+                default:
+                    contentArea.innerHTML = welcomeView;
+            }
+        }
+        
+        function renderLoadProcedureForm(container) {
+            let tempItems = []; 
+
+            const commonInputClasses = "w-full px-4 py-2 mt-1 bg-white border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-accent-500";
+            const commonSelectClasses = commonInputClasses;
+            const commonTextareaClasses = commonInputClasses;
+
+            container.innerHTML = `
+                <h2 class="text-3xl font-bold text-inst-dark mb-6">Cargar Nuevo Procedimiento</h2>
+                <form id="procedure-form" class="space-y-8">
+                    <!-- Detalles del Procedimiento -->
+                    <div class="p-6 bg-white rounded-xl shadow-lg border">
+                        <h3 class="text-xl font-semibold text-accent-600 mb-4 border-b pb-3">1. Detalles del Hecho</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Fecha</label>
+                                <input type="date" id="proc-datetime" class="${commonInputClasses}" value="${new Date().toISOString().slice(0, 10)}" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Sector / Lugar</label>
+                                <select id="proc-sector" class="${commonSelectClasses}" required>
+                                    ${currentUser.scope.map(s => `<option value="${s}">${s}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Órgano que realiza</label>
+                                <select id="proc-organo" class="${commonSelectClasses}" required>
+                                    ${ORGANOS.map(o => `<option value="${o}">${o}</option>`).join('')}
+                                    <option value="otros">Otros</option>
+                                </select>
+                                <input type="text" id="proc-organo-otro" class="hidden mt-2 ${commonInputClasses}" placeholder="Especifique otro órgano">
+                            </div>
+                             <div>
+                                <label class="block text-sm font-medium text-gray-700">Tipo de Secuestro</label>
+                                <div class="mt-2 space-x-6">
+                                    <label class="inline-flex items-center"><input type="radio" name="tipoSecuestro" value="CON RESPONSABLE" class="text-accent-600 focus:ring-accent-500"> <span class="ml-2">Con Responsable</span></label>
+                                    <label class="inline-flex items-center"><input type="radio" name="tipoSecuestro" value="SIN RESPONSABLE" class="text-accent-600 focus:ring-accent-500" checked> <span class="ml-2">Sin Responsable</span></label>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="responsable-details" class="mt-6">
+                             <div>
+                                <label for="sin-responsable-obs" class="block text-sm font-medium text-gray-700">Observaciones (Hallazgo sin responsable)</label>
+                                <textarea id="sin-responsable-obs" name="sin-responsable-obs" class="${commonTextareaClasses}" rows="3" placeholder="Aclaraciones sobre el hallazgo..."></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Carga de Elementos -->
+                    <div class="p-6 bg-white rounded-xl shadow-lg border">
+                        <h3 class="text-xl font-semibold text-accent-600 mb-4 border-b pb-3">2. Elementos Secuestrados</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Tipo de Elemento</label>
+                                    <select id="item-type" class="${commonSelectClasses}">
+                                        <option value="">Seleccione...</option>
+                                        ${Object.keys(ELEMENTOS_CONFIG).map(t => `<option value="${t}">${t}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Elemento Específico</label>
+                                    <select id="item-subtype" class="${commonSelectClasses}" disabled></select>
+                                </div>
+                                <div id="item-specific-fields" class="space-y-4 border-t pt-4"></div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Observaciones del Elemento</label>
+                                    <textarea id="item-observaciones" class="${commonTextareaClasses}" rows="3"></textarea>
+                                </div>
+                                <button type="button" id="add-item-btn" class="px-4 py-2 font-bold text-white bg-accent-600 rounded-lg hover:bg-accent-700">
+                                    <i class="fas fa-plus mr-2"></i>Añadir Elemento
+                                </button>
+                            </div>
+                            <div class="h-full">
+                                <h4 class="font-semibold text-gray-700 mb-2">Síntesis en Tiempo Real</h4>
+                                <div id="live-synthesis" class="p-4 bg-gray-50 rounded-lg h-80 overflow-y-auto text-sm text-gray-600 border">
+                                    Aún no se han añadido elementos a este procedimiento.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="text-right">
+                        <button type="submit" class="px-6 py-3 font-bold text-lg text-white bg-green-600 rounded-lg hover:bg-green-700">
+                            <i class="fas fa-save mr-2"></i>Guardar Procedimiento
+                        </button>
+                    </div>
+                </form>
+            `;
+
+            setupProcedureFormListeners(tempItems);
+        }
+        
+        function setupProcedureFormListeners(tempItems) {
+            const commonInputClasses = "w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-lg";
+
+            document.getElementById('proc-organo').addEventListener('change', e => {
+                document.getElementById('proc-organo-otro').classList.toggle('hidden', e.target.value !== 'otros');
+            });
+
+            document.querySelectorAll('input[name="tipoSecuestro"]').forEach(radio => {
+                radio.addEventListener('change', e => {
+                    const detailsDiv = document.getElementById('responsable-details');
+                    if (e.target.value === 'CON RESPONSABLE') {
+                        detailsDiv.innerHTML = `
+                            <label class="block text-sm font-medium text-gray-700">Tipo de Responsable</label>
+                            <div class="mt-2 space-x-6">
+                                <label class="inline-flex items-center"><input type="radio" name="tipoResponsable" value="interno" class="text-accent-600 focus:ring-accent-500"> <span class="ml-2">Interno</span></label>
+                                <label class="inline-flex items-center"><input type="radio" name="tipoResponsable" value="visita" class="text-accent-600 focus:ring-accent-500"> <span class="ml-2">Visita</span></label>
+                                <label class="inline-flex items-center"><input type="radio" name="tipoResponsable" value="agente" class="text-accent-600 focus:ring-accent-500"> <span class="ml-2">Agente</span></label>
+                            </div>
+                            <div id="responsable-specific-fields" class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+                        `;
+                        setupResponsableTypeListeners();
+                    } else {
+                        detailsDiv.innerHTML = `
+                             <div>
+                                <label for="sin-responsable-obs" class="block text-sm font-medium text-gray-700">Observaciones (Hallazgo sin responsable)</label>
+                                <textarea id="sin-responsable-obs" name="sin-responsable-obs" class="${commonInputClasses}" rows="3" placeholder="Aclaraciones sobre el hallazgo..."></textarea>
+                            </div>
+                        `;
+                    }
+                });
+            });
+
+            const itemTypeSelect = document.getElementById('item-type');
+            const itemSubtypeSelect = document.getElementById('item-subtype');
+            const specificFieldsDiv = document.getElementById('item-specific-fields');
+            
+            itemTypeSelect.addEventListener('change', () => {
+                const type = itemTypeSelect.value;
+                itemSubtypeSelect.innerHTML = '<option value="">Seleccione...</option>';
+                specificFieldsDiv.innerHTML = '';
+                itemSubtypeSelect.disabled = true;
+                if (type && ELEMENTOS_CONFIG[type]) {
+                    Object.keys(ELEMENTOS_CONFIG[type]).forEach(subtype => {
+                        itemSubtypeSelect.innerHTML += `<option value="${subtype}">${subtype}</option>`;
+                    });
+                    itemSubtypeSelect.disabled = false;
+                }
+            });
+
+            itemSubtypeSelect.addEventListener('change', () => {
+                const type = itemTypeSelect.value;
+                const subtype = itemSubtypeSelect.value;
+                specificFieldsDiv.innerHTML = '';
+                if (type && subtype && ELEMENTOS_CONFIG[type][subtype]) {
+                    ELEMENTOS_CONFIG[type][subtype].forEach(field => {
+                        let inputHtml = '';
+                        const inputClasses = "mt-1 block w-full bg-white border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-accent-500 focus:border-accent-500";
+                        const divClass = field.dependsOn ? `hidden` : '';
+                        
+                        if (field.type === 'textarea') {
+                            inputHtml = `<textarea id="field-${field.name}" name="${field.name}" class="${inputClasses}" rows="3"></textarea>`;
+                        } else if (field.type === 'checkbox') {
+                            inputHtml = `<div class="flex items-center mt-2"><input id="field-${field.name}" name="${field.name}" type="checkbox" class="h-4 w-4 text-accent-600 focus:ring-accent-500 border-gray-300 rounded"></div>`;
+                        } else {
+                            inputHtml = `<input id="field-${field.name}" name="${field.name}" type="${field.type}" ${field.step ? `step="${field.step}"` : ''} ${field.min ? `min="${field.min}"` : ''} class="${inputClasses}">`;
+                        }
+                        
+                        specificFieldsDiv.innerHTML += `
+                            <div id="container-field-${field.name}" class="${divClass}">
+                                <label for="field-${field.name}" class="block text-sm font-medium text-gray-700">${field.label}</label>
+                                ${inputHtml}
+                            </div>
+                        `;
+                    });
+                    // Add listeners for dependent fields
+                    const camaraCheckbox = document.getElementById('field-tieneCamara');
+                    if (camaraCheckbox) {
+                        camaraCheckbox.addEventListener('change', (e) => {
+                            document.getElementById('container-field-cantidadCamaras').classList.toggle('hidden', !e.target.checked);
+                        });
+                    }
+                }
+            });
+
+            document.getElementById('add-item-btn').addEventListener('click', () => {
+                const type = itemTypeSelect.value;
+                const subtype = itemSubtypeSelect.value;
+                if (!type || !subtype) {
+                    showMessage('Error', 'Debe seleccionar un tipo y subtipo de elemento.');
+                    return;
+                }
+                
+                const newItem = {
+                    type,
+                    subtype,
+                    observaciones: document.getElementById('item-observaciones').value,
+                    details: {}
+                };
+
+                const fields = ELEMENTOS_CONFIG[type][subtype];
+                let isValid = true;
+                fields.forEach(field => {
+                    const input = document.getElementById(`field-${field.name}`);
+                    if(input) {
+                        if (field.type === 'checkbox') {
+                            newItem.details[field.name] = input.checked;
+                        } else {
+                             if (!input.closest(`div[id^="container-field-"]`).classList.contains('hidden') && input.value.trim() === '') {
+                                 isValid = false;
+                             }
+                            newItem.details[field.name] = input.value;
+                        }
+                    }
+                });
+                
+                if (!isValid) {
+                     showMessage('Error', 'Por favor, complete todos los campos visibles del elemento.');
+                     return;
+                }
+
+                tempItems.push(newItem);
+                updateLiveSynthesis(tempItems);
+                resetItemForm();
+            });
+
+            document.getElementById('procedure-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                if (tempItems.length === 0) {
+                    showMessage('Error', 'Debe añadir al menos un elemento secuestrado al procedimiento.');
+                    return;
+                }
+
+                let organo = document.getElementById('proc-organo').value;
+                if(organo === 'otros') {
+                    organo = document.getElementById('proc-organo-otro').value.trim();
+                }
+
+                const procedureData = {
+                    datetime: document.getElementById('proc-datetime').value,
+                    sector: document.getElementById('proc-sector').value,
+                    organo: organo,
+                    tipoSecuestro: document.querySelector('input[name="tipoSecuestro"]:checked').value,
+                    responsable: getResponsableData(),
+                    items: tempItems,
+                    createdBy: currentUser.username,
+                    createdAt: new Date().toISOString()
+                };
+                
+                console.log("Saving procedure: ", procedureData);
+                showMessage('Éxito', 'Procedimiento guardado correctamente (simulación).');
+                navigateTo('load-procedure');
+            });
+        }
+        
+        function updateLiveSynthesis(items) {
+            const container = document.getElementById('live-synthesis');
+            if (items.length === 0) {
+                container.innerHTML = 'Aún no se han añadido elementos a este procedimiento.';
+                return;
+            }
+            container.innerHTML = items.map((item, index) => {
+                let detailsText = Object.entries(item.details)
+                    .map(([key, value]) => {
+                        const fieldConfig = ELEMENTOS_CONFIG[item.type][item.subtype].find(f => f.name === key);
+                        if (!value) return '';
+                        return `<li><strong class="font-medium text-gray-800">${fieldConfig.label}:</strong> ${value === true ? 'Sí' : value}</li>`;
+                    }).join('');
+                if (item.observaciones) {
+                    detailsText += `<li><strong class="font-medium text-gray-800">Observaciones:</strong> ${item.observaciones}</li>`;
+                }
+
+                return `
+                    <div class="mb-3 p-3 bg-white border rounded-md">
+                        <p class="font-bold text-accent-700">${index + 1}. ${item.subtype}</p>
+                        <ul class="list-disc list-inside text-xs pl-2 mt-1 space-y-1">${detailsText}</ul>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function resetItemForm() {
+            document.getElementById('item-type').value = '';
+            document.getElementById('item-subtype').innerHTML = '<option value="">Seleccione...</option>';
+            document.getElementById('item-subtype').disabled = true;
+            document.getElementById('item-specific-fields').innerHTML = '';
+            document.getElementById('item-observaciones').value = '';
+        }
+
+        function setupResponsableTypeListeners(){
+            const commonInputClasses = "w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-lg";
+             document.querySelectorAll('input[name="tipoResponsable"]').forEach(radio => {
+                radio.addEventListener('change', e => {
+                    const fieldsDiv = document.getElementById('responsable-specific-fields');
+                    let html = '';
+                    switch(e.target.value) {
+                        case 'interno':
+                            html = `
+                                <div><label class="text-sm font-medium text-gray-700">Apellido y Nombres</label><input name="resp-nombre" type="text" class="${commonInputClasses}"></div>
+                                <div><label class="text-sm font-medium text-gray-700">Leg. n°</label><input name="resp-legajo" type="text" class="${commonInputClasses}"></div>
+                                <div><label class="text-sm font-medium text-gray-700">Pabellón</label><input name="resp-pabellon" type="text" class="${commonInputClasses}"></div>
+                            `;
+                            break;
+                        case 'visita':
+                             html = `
+                                <div><label class="text-sm font-medium text-gray-700">Apellido (Visita)</label><input name="resp-visita-apellido" type="text" class="${commonInputClasses}"></div>
+                                <div><label class="text-sm font-medium text-gray-700">Nombre (Visita)</label><input name="resp-visita-nombre" type="text" class="${commonInputClasses}"></div>
+                                <div><label class="text-sm font-medium text-gray-700">DNI (Visita)</label><input name="resp-visita-dni" type="text" class="${commonInputClasses}"></div>
+                                <div class="md:col-span-2 border-t pt-4 mt-2">
+                                    <p class="text-sm font-semibold text-accent-700">Datos del Interno Visitado</p>
+                                </div>
+                                <div><label class="text-sm font-medium text-gray-700">Apellido (Interno)</label><input name="resp-interno-apellido" type="text" class="${commonInputClasses}"></div>
+                                <div><label class="text-sm font-medium text-gray-700">Nombre (Interno)</label><input name="resp-interno-nombre" type="text" class="${commonInputClasses}"></div>
+                                <div><label class="text-sm font-medium text-gray-700">Número de Legajo</label><input name="resp-interno-legajo" type="text" class="${commonInputClasses}"></div>
+                                <div><label class="text-sm font-medium text-gray-700">Pabellón</label><input name="resp-interno-pabellon" type="text" class="${commonInputClasses}"></div>
+                            `;
+                            break;
+                        case 'agente':
+                             html = `
+                                <div><label class="text-sm font-medium text-gray-700">Nombre</label><input name="resp-agente-nombre" type="text" class="${commonInputClasses}"></div>
+                                <div><label class="text-sm font-medium text-gray-700">Apellido</label><input name="resp-agente-apellido" type="text" class="${commonInputClasses}"></div>
+                                <div><label class="text-sm font-medium text-gray-700">Número de DNI</label><input name="resp-agente-dni" type="text" class="${commonInputClasses}"></div>
+                            `;
+                            break;
+                    }
+                    fieldsDiv.innerHTML = html;
+                });
+             });
+        }
+        
+        function getResponsableData() {
+            const tipoSecuestro = document.querySelector('input[name="tipoSecuestro"]:checked').value;
+            
+            if (tipoSecuestro === 'SIN RESPONSABLE') {
+                const obsTextarea = document.getElementById('sin-responsable-obs');
+                return {
+                    tipo: 'Ninguno',
+                    observaciones: obsTextarea ? obsTextarea.value : ''
+                };
+            }
+
+            const tipoResponsableRadio = document.querySelector('input[name="tipoResponsable"]:checked');
+            if(!tipoResponsableRadio) return null;
+            
+            const tipo = tipoResponsableRadio.value;
+            const data = { tipo };
+            const fieldsDiv = document.getElementById('responsable-specific-fields');
+            
+            fieldsDiv.querySelectorAll('input').forEach(input => {
+                data[input.name] = input.value;
+            });
+
+            return data;
+        }
+
+        // --- VISTAS DE RESUMEN ---
+        function renderSummaryView(container) {
+             const sectorOptions = SECTORES.map(sector => `
+                <label class="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 cursor-pointer">
+                    <input type="checkbox" class="form-checkbox h-4 w-4 text-accent-600 border-gray-300 rounded focus:ring-accent-500" value="${sector}">
+                    <span class="text-sm text-gray-700">${sector}</span>
+                </label>
+             `).join('');
+
+             container.innerHTML = `
+                <h2 class="text-3xl font-bold text-inst-dark mb-6">Resumen de Secuestros</h2>
+                <div class="p-4 bg-white rounded-xl shadow-lg border mb-6 flex flex-wrap items-center gap-4">
+                    <div class="flex items-center gap-2">
+                        <label for="filter-start-date" class="text-sm font-medium">Desde:</label>
+                        <input type="date" id="filter-start-date" class="border-gray-300 rounded-lg py-1 px-2 text-sm shadow-sm">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label for="filter-end-date" class="text-sm font-medium">Hasta:</label>
+                        <input type="date" id="filter-end-date" class="border-gray-300 rounded-lg py-1 px-2 text-sm shadow-sm">
+                    </div>
+                    
+                    <!-- Sector Filter Dropdown -->
+                    <div class="relative" id="sector-filter-container">
+                         <label class="text-sm font-medium">Sector/Lugar:</label>
+                        <button id="sector-filter-btn" type="button" class="mt-1 inline-flex justify-between w-64 rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-500">
+                            <span id="sector-filter-text">Todos los sectores</span>
+                            <i class="fas fa-chevron-down -mr-1 ml-2 h-5 w-5 my-auto"></i>
+                        </button>
+                        <div id="sector-filter-options" class="origin-top-right absolute right-0 mt-2 w-72 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none hidden z-10">
+                            <div class="py-1 max-h-60 overflow-y-auto">
+                                ${sectorOptions}
+                            </div>
+                        </div>
+                    </div>
+
+                    <button id="filter-btn" class="px-4 py-2 text-sm font-bold text-white bg-accent-600 rounded-lg hover:bg-accent-700">Filtrar</button>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg border overflow-x-auto">
+                    <table class="w-full text-sm text-left text-gray-600">
+                        <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                            <tr>
+                                <th scope="col" class="px-6 py-3">Fecha</th>
+                                <th scope="col" class="px-6 py-3">Sector</th>
+                                <th scope="col" class="px-6 py-3">Órgano</th>
+                                <th scope="col" class="px-6 py-3">Tipo</th>
+                                <th scope="col" class="px-6 py-3">Responsable</th>
+                                <th scope="col" class="px-6 py-3">Detalle</th>
+                            </tr>
+                        </thead>
+                        <tbody id="summary-table-body">
+                            <tr><td colspan="6" class="text-center p-8 text-gray-500">No hay datos para mostrar.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+             `;
+             setupSummaryFilters();
+        }
+
+        function setupSummaryFilters() {
+            const container = document.getElementById('sector-filter-container');
+            const btn = document.getElementById('sector-filter-btn');
+            const optionsDiv = document.getElementById('sector-filter-options');
+            const filterText = document.getElementById('sector-filter-text');
+
+            if (!container || !btn || !optionsDiv) return;
+
+            btn.addEventListener('click', () => {
+                optionsDiv.classList.toggle('hidden');
+            });
+
+            const checkboxes = optionsDiv.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(checkbox => {
+                checkbox.addEventListener('change', () => {
+                    const selected = Array.from(checkboxes)
+                        .filter(i => i.checked)
+                        .map(i => i.value);
+                    
+                    if (selected.length === 0) {
+                        filterText.textContent = 'Todos los sectores';
+                    } else if (selected.length === 1) {
+                        filterText.textContent = selected[0];
+                    } else {
+                        filterText.textContent = `${selected.length} sectores seleccionados`;
+                    }
+                });
+            });
+
+            document.getElementById('filter-btn').addEventListener('click', () => {
+                const startDate = document.getElementById('filter-start-date').value;
+                const endDate = document.getElementById('filter-end-date').value;
+                const selectedSectors = Array.from(checkboxes)
+                        .filter(i => i.checked)
+                        .map(i => i.value);
+                
+                console.log('Filtrando por:', { startDate, endDate, selectedSectors });
+                showMessage('Filtro Aplicado', `Se aplicó un filtro. Revisa la consola para ver los valores seleccionados. Start: ${startDate}, End: ${endDate}, Sectors: ${selectedSectors.join(', ')}`);
+                // Here you would add the logic to reload the table with the applied filters.
+            });
+            
+            // Close dropdown if clicked outside
+            document.addEventListener('click', (event) => {
+                if (!container.contains(event.target)) {
+                    optionsDiv.classList.add('hidden');
+                }
+            });
+        }
+
+        function renderQuantitativeView(container) {
+             container.innerHTML = `
+                <h2 class="text-3xl font-bold text-inst-dark mb-6">Resumen Cuantitativo</h2>
+                 <div class="bg-white rounded-xl shadow-lg border overflow-x-auto">
+                    <table class="w-full text-sm text-left text-gray-600">
+                        <thead class="text-xs text-gray-700 uppercase bg-gray-100 sticky top-0">
+                            <tr id="quantitative-table-head"></tr>
+                        </thead>
+                        <tbody id="quantitative-table-body" class="divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
+             `;
+             loadQuantitativeData();
+        }
+        
+        function loadQuantitativeData() {
+            const head = document.getElementById('quantitative-table-head');
+            const body = document.getElementById('quantitative-table-body');
+            
+            let headHtml = '<th scope="col" class="px-6 py-3">Elemento</th>';
+            SECTORES.forEach(sector => {
+                headHtml += `<th scope="col" class="px-2 py-3 text-center text-xs" title="${sector}">${sector.replace('C.C.N° ', 'C').replace('E.P.N° ', 'E')}</th>`;
+            });
+            headHtml += '<th scope="col" class="px-6 py-3 text-center font-bold bg-gray-200">Total</th>';
+            head.innerHTML = headHtml;
+            
+            let bodyHtml = '';
+            const allItems = ['COCAINA / MARIHUANA', 'PSICOFÁRMACOS', 'ALCOHOL', 'CELULAR', 'CHIPS', 'BATERÍAS', 'CARGADORES', 'CABLES USB', 'AURICULARES', 'PLAQUETA', 'PUNZOCORTANTES', 'OTROS'];
+            
+            allItems.forEach(item => {
+                let rowTotal = 0;
+                let rowHtml = `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 font-medium whitespace-nowrap text-gray-900">${item}</td>`;
+                SECTORES.forEach(() => {
+                    const randomValue = Math.floor(Math.random() * 5);
+                    rowTotal += randomValue;
+                    rowHtml += `<td class="px-2 py-4 text-center">${randomValue > 0 ? randomValue : '-'}</td>`;
+                });
+                rowHtml += `<td class="px-6 py-4 text-center font-bold text-accent-700 bg-gray-100">${rowTotal}</td></tr>`;
+                bodyHtml += rowHtml;
+            });
+            body.innerHTML = bodyHtml;
+        }
+
+        document.addEventListener('DOMContentLoaded', initApp);
+
+    </script>
+</body>
+</html>
+
+
+
+
