@@ -215,7 +215,8 @@
         const ORGANOS = ['Servicio de Guardia', 'G.E.A.R.', 'Body Scanner', 'Jefe de Seguridad'];
         const ELEMENTOS_CONFIG = {
             'Sustancias': {
-                'COCAINA / MARIHUANA': [{ name: 'peso', label: 'Peso (en grs)', type: 'number', step: '0.1' }],
+                'COCAINA': [{ name: 'peso', label: 'Peso (en grs)', type: 'number', step: '0.1' }],
+                'MARIHUANA': [{ name: 'peso', label: 'Peso (en grs)', type: 'number', step: '0.1' }],
                 'PSICOFÁRMACOS': [{ name: 'cantidad', label: 'Cantidad (en uds)', type: 'number' }],
                 'ALCOHOL': [{ name: 'cantidad', label: 'Cantidad (en lts)', type: 'number', step: '0.1' }]
             },
@@ -894,7 +895,7 @@
             head.innerHTML = headHtml;
             
             let bodyHtml = '';
-            const allItems = ['COCAINA / MARIHUANA', 'PSICOFÁRMACOS', 'ALCOHOL', 'CELULAR', 'CHIPS', 'BATERÍAS', 'CARGADORES', 'CABLES USB', 'AURICULARES', 'PLAQUETA', 'PUNZOCORTANTES', 'OTROS'];
+            const allItems = ['COCAINA', 'MARIHUANA', 'PSICOFÁRMACOS', 'ALCOHOL', 'CELULAR', 'CHIPS', 'BATERÍAS', 'CARGADORES', 'CABLES USB', 'AURICULARES', 'PLAQUETA', 'PUNZOCORTANTES', 'OTROS'];
             
             allItems.forEach(item => {
                 let rowTotal = 0;
@@ -917,7 +918,3 @@
     </script>
 </body>
 </html>
-
-
-
-
