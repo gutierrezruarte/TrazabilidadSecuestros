@@ -307,12 +307,14 @@
         
         function fetchAllProcedures() {
             if (!proceduresPromise) {
+                console.log("Fetching procedures from Firestore...");
                 proceduresPromise = getDocs(collection(db, "procedures"))
                     .then(querySnapshot => {
                         allProcedures = querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
+                        console.log("Procedures fetched successfully.");
                     })
                     .catch(error => {
-                        console.error("Error al cargar procedimientos desde Firestore: ", error);
+                        console.error("Error fetching procedures from Firestore: ", error);
                         showMessage('Error de Conexión', 'No se pudieron cargar los procedimientos. Verifique las reglas de seguridad de Firestore.');
                         allProcedures = [];
                     });
@@ -663,6 +665,7 @@
                 submitButton.disabled = true;
                 submitButton.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Guardando...`;
 
+                let success = false;
                 try {
                     let organo = document.getElementById('proc-organo').value;
                     if (organo === 'otros') {
@@ -684,14 +687,11 @@
                         createdByName: currentUser.name,
                         createdAt: Timestamp.now()
                     };
-
+                    
+                    console.log("Intentando guardar procedimiento:", JSON.stringify(procedureData, null, 2));
                     const docRef = await addDoc(collection(db, "procedures"), procedureData);
                     console.log("Documento guardado con ID: ", docRef.id);
-                    
-                    proceduresPromise = null; // Invalidate cache
-                    await fetchAllProcedures();
-                    showMessage('Éxito', 'Procedimiento guardado correctamente.');
-                    navigateTo('load-procedure');
+                    success = true;
 
                 } catch (error) {
                     console.error("Error al guardar el documento: ", error);
@@ -699,6 +699,14 @@
                 } finally {
                     submitButton.disabled = false;
                     submitButton.innerHTML = originalButtonText;
+                    console.log("Operación de guardado finalizada. Estado del botón restaurado.");
+                }
+
+                if(success) {
+                    proceduresPromise = null; // Invalidate cache
+                    await fetchAllProcedures();
+                    showMessage('Éxito', 'Procedimiento guardado correctamente.');
+                    navigateTo('load-procedure');
                 }
             });
         }
@@ -785,7 +793,7 @@
                 const obsTextarea = document.getElementById('sin-responsable-obs');
                 return {
                     tipo: 'Ninguno',
-                    observaciones: obsTextarea ? obsTextarea.value : ''
+                    observaciones: obsTextarea ? obsTextarea.value || '' : ''
                 };
             }
 
@@ -800,7 +808,7 @@
             
             if (fieldsDiv) {
                 fieldsDiv.querySelectorAll('input').forEach(input => {
-                    data[input.name] = input.value;
+                    data[input.name] = input.value || '';
                 });
             }
 
