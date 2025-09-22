@@ -165,12 +165,6 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
-            getAuth, 
-            onAuthStateChanged,
-            signInWithEmailAndPassword,
-            signOut
-        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { 
             getFirestore,
             doc,
             getDoc,
@@ -197,7 +191,6 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const auth = getAuth(app);
 
         // --- ESTADO DE LA APLICACION ---
         let currentUser = null;
@@ -237,6 +230,15 @@
                 'PUNZOCORTANTES': [{ name: 'cantidad', label: 'Cantidad', type: 'number' }],
                 'OTROS': [{ name: 'descripcion', label: 'Descripción', type: 'textarea' }]
             }
+        };
+        
+        const usersDB = {
+            '36219951': { password: 'Marquitos123', role: 'Admin', scope: SECTORES, name: 'Administrador' },
+            'guardia1': { password: '123', role: 'Servicio de Guardia', scope: ['C.C.N° 1 - MD1', 'C.C.N° 1 - M2'], name: 'Juan Perez' },
+            'gear1': { password: '123', role: 'G.E.A.R.', scope: ['E.P.N° 3', 'E.P.N° 4'], name: 'Maria Lopez' },
+            'scanner1': { password: '123', role: 'Body Scanner', scope: ['C.C.N° 2 - M1'], name: 'Carlos Gomez' },
+            'jefe1': { password: '123', role: 'Jefe de Seguridad', scope: SECTORES, name: 'Ana Rodriguez' },
+            'secretaria1': { password: '123', role: 'Secretaría de Seguridad o Dirección', scope: SECTORES, name: 'Lucia Fernandez' }
         };
 
         // --- LÓGICA DE LA APLICACIÓN ---
@@ -279,23 +281,12 @@
             document.getElementById('login-form').addEventListener('submit', handleLogin);
             document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
-            onAuthStateChanged(auth, async (user) => {
-                if (user) {
-                    const userDocRef = doc(db, "users", user.uid);
-                    const userDocSnap = await getDoc(userDocRef);
-                    if (userDocSnap.exists()) {
-                        currentUser = { uid: user.uid, email: user.email, ...userDocSnap.data() };
-                        await fetchAllProcedures();
-                        showPortal();
-                    } else {
-                        console.error("No user profile found in Firestore.");
-                        handleLogout();
-                    }
-                } else {
-                    currentUser = null;
-                    showLogin();
-                }
-            });
+            const sessionUser = sessionStorage.getItem('currentUser');
+            if (sessionUser) {
+                currentUser = JSON.parse(sessionUser);
+                await fetchAllProcedures();
+                showPortal();
+            }
         }
         
         async function handleLogin(e) {
@@ -304,33 +295,23 @@
             const password = e.target.password.value;
             const errorP = document.getElementById('login-error');
             errorP.textContent = '';
+            
+            const user = usersDB[username];
 
-            // Handle the superuser login
-            let emailToLogin = username;
-            if (username === '36219951' && password === 'Marquitos123') {
-                // For the superuser, we use a predefined email.
-                // IMPORTANT: This user MUST exist in Firebase Auth with the password 'Marquitos123'
-                emailToLogin = 'superusuario@trazabilidad.com'; 
-            }
-
-            try {
-                // If the input is not the superuser, it's treated as a regular email.
-                await signInWithEmailAndPassword(auth, emailToLogin, password);
-                // onAuthStateChanged will handle the rest
-            } catch (error) {
-                console.error("Login failed:", error);
+            if (user && user.password === password) {
+                currentUser = { username, ...user };
+                sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+                await fetchAllProcedures();
+                showPortal();
+            } else {
                 errorP.textContent = 'Usuario o contraseña incorrectos.';
             }
         }
 
-
-        async function handleLogout() {
-            try {
-                await signOut(auth);
-                // onAuthStateChanged will handle UI change
-            } catch (error) {
-                console.error("Logout failed:", error);
-            }
+        function handleLogout() {
+            currentUser = null;
+            sessionStorage.removeItem('currentUser');
+            showLogin();
         }
         
         async function fetchAllProcedures() {
@@ -672,7 +653,7 @@
                     tipoSecuestro: document.querySelector('input[name="tipoSecuestro"]:checked').value,
                     responsable: getResponsableData(),
                     items: tempItems,
-                    createdBy: currentUser.uid,
+                    createdBy: currentUser.username,
                     createdByName: currentUser.name,
                     createdAt: Timestamp.now()
                 };
