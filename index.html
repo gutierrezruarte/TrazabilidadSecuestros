@@ -156,36 +156,33 @@
         </div>
     </div>
 
-
-    <!-- Firebase SDK -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { 
-            getFirestore,
-            collection,
-            addDoc,
-            getDocs,
-            Timestamp
-        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // --- CONFIGURACION DE FIREBASE ---
-         const firebaseConfig = {
-            apiKey: "AIzaSyCm8rUlizlnKoYnVNgwQXOMf4ISgT8Sdco",
-            authDomain: "trazabiidadsecuestros.firebaseapp.com",
-            projectId: "trazabiidadsecuestros",
-            storageBucket: "trazabiidadsecuestros.firebasestorage.app",
-            messagingSenderId: "609454303222",
-            appId: "1:609454303222:web:4e5bf4f271850cf5e889d7",
-            measurementId: "G-GKKZ0TE1F4"
-        };
-            
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-
+    <script>
         // --- ESTADO DE LA APLICACION ---
         let currentUser = null;
-        let allProcedures = [];
-        let proceduresPromise = null; // Promise for data fetching
+        let allProcedures = [
+             {
+                id: 'proc_1',
+                datetime: new Date('2023-10-26T10:00:00'),
+                sector: 'C.C.N° 1 - MD1',
+                organo: 'Servicio de Guardia',
+                tipoSecuestro: 'SIN RESPONSABLE',
+                responsable: { tipo: 'Ninguno', observaciones: 'Encontrado en patio' },
+                items: [{ type: 'Sustancias', subtype: 'MARIHUANA', details: { peso: '10.5' } }],
+                createdBy: 'guardia1',
+                createdByName: 'Juan Perez'
+            },
+            {
+                id: 'proc_2',
+                datetime: new Date('2023-10-27T15:30:00'),
+                sector: 'E.P.N° 3',
+                organo: 'G.E.A.R.',
+                tipoSecuestro: 'CON RESPONSABLE',
+                responsable: { tipo: 'interno', 'resp-nombre': 'Gomez, Carlos', 'resp-legajo': '12345', 'resp-pabellon': 'A' },
+                items: [{ type: 'Electrónicos', subtype: 'CELULAR', details: { marca: 'Samsung', modelo: 'A10' } }],
+                createdBy: 'gear1',
+                createdByName: 'Maria Lopez'
+            }
+        ];
 
         // --- DATOS MAESTROS ---
         const ROLES = ['Servicio de Guardia', 'G.E.A.R.', 'Body Scanner', 'Jefe de Seguridad', 'Secretaría de Seguridad o Dirección', 'Director', 'Departamento Seguridad', 'Departamento Inspección', 'Admin'];
@@ -299,29 +296,10 @@
 
         function handleLogout() {
             currentUser = null;
-            allProcedures = [];
-            proceduresPromise = null;
             sessionStorage.removeItem('currentUser');
             showLogin();
         }
         
-        function fetchAllProcedures() {
-            if (!proceduresPromise) {
-                console.log("Fetching procedures from Firestore...");
-                proceduresPromise = getDocs(collection(db, "procedures"))
-                    .then(querySnapshot => {
-                        allProcedures = querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
-                        console.log("Procedures fetched successfully.");
-                    })
-                    .catch(error => {
-                        console.error("Error fetching procedures from Firestore: ", error);
-                        showMessage('Error de Conexión', 'No se pudieron cargar los procedimientos. Verifique las reglas de seguridad de Firestore.');
-                        allProcedures = [];
-                    });
-            }
-            return proceduresPromise;
-        }
-
         function showLogin() {
             document.getElementById('login-section').classList.remove('hidden');
             document.getElementById('main-portal').classList.add('hidden');
@@ -335,8 +313,6 @@
                 <p class="text-xs text-gray-300">${currentUser.role}</p>
             `;
             setupMenu();
-            // Fetch data in the background without blocking UI
-            fetchAllProcedures();
             navigateTo('welcome');
         }
         
@@ -366,7 +342,7 @@
             });
         }
         
-        async function navigateTo(viewId) {
+        function navigateTo(viewId) {
             document.querySelectorAll('#main-menu button').forEach(btn => {
                 btn.classList.remove('active');
             });
@@ -381,13 +357,6 @@
                     <p class="mt-4 text-lg text-gray-600">Seleccione una opción del menú para comenzar.</p>
                 </div>`;
 
-            const loadingView = `
-                <div class="text-center p-10">
-                    <i class="fas fa-spinner fa-spin text-4xl text-accent-500"></i>
-                    <p class="mt-4 text-lg text-gray-600">Cargando datos...</p>
-                </div>
-            `;
-
             switch (viewId) {
                 case 'welcome':
                      contentArea.innerHTML = welcomeView;
@@ -396,13 +365,9 @@
                     renderLoadProcedureForm(contentArea);
                     break;
                 case 'summary':
-                    contentArea.innerHTML = loadingView;
-                    await fetchAllProcedures();
                     renderSummaryView(contentArea);
                     break;
                 case 'quantitative':
-                    contentArea.innerHTML = loadingView;
-                    await fetchAllProcedures();
                     renderQuantitativeView(contentArea);
                     break;
                 case 'incidents':
@@ -652,15 +617,11 @@
                 submitButton.disabled = true;
                 submitButton.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Guardando...`;
 
-                const finalizeSubmit = () => {
-                    submitButton.disabled = false;
-                    submitButton.innerHTML = originalButtonText;
-                };
-
                 // --- VALIDATION ---
                 if (tempItems.length === 0) {
                     showMessage('Error', 'Debe añadir al menos un elemento secuestrado.');
-                    finalizeSubmit();
+                    submitButton.disabled = false;
+                    submitButton.innerHTML = originalButtonText;
                     return;
                 }
 
@@ -669,55 +630,42 @@
 
                 if (tipoSecuestro === 'CON RESPONSABLE' && (!responsableData || !responsableData.tipo)) {
                     showMessage('Validación Fallida', 'Debe seleccionar un tipo de responsable.');
-                    finalizeSubmit();
+                    submitButton.disabled = false;
+                    submitButton.innerHTML = originalButtonText;
                     return;
                 }
 
-                // --- DATA ASSEMBLY & FIRESTORE CALL ---
-                try {
-                    let organo = document.getElementById('proc-organo').value;
-                    if (organo === 'otros') {
-                        organo = document.getElementById('proc-organo-otro').value.trim();
-                    }
-
-                    const dateValue = document.getElementById('proc-datetime').value;
-                    const dateParts = dateValue.split('-');
-                    const localDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
-
-                    const procedureData = {
-                        datetime: Timestamp.fromDate(localDate),
-                        sector: document.getElementById('proc-sector').value,
-                        organo: organo,
-                        tipoSecuestro: tipoSecuestro,
-                        responsable: responsableData,
-                        items: tempItems,
-                        createdBy: currentUser.username,
-                        createdByName: currentUser.name,
-                        createdAt: Timestamp.now()
-                    };
-                    
-                    console.log("Datos a guardar:", JSON.stringify(procedureData, null, 2));
-
-                    addDoc(collection(db, "procedures"), procedureData)
-                        .then(docRef => {
-                            console.log("Documento guardado con ID:", docRef.id);
-                            proceduresPromise = null; // Invalidate cache
-                            fetchAllProcedures().then(() => {
-                                showMessage('Éxito', 'Procedimiento guardado correctamente.');
-                                navigateTo('load-procedure');
-                            });
-                        })
-                        .catch(error => {
-                            console.error("Error al guardar en Firestore:", error);
-                            showMessage('Error al Guardar', `No se pudo guardar. Error: ${error.message}`);
-                            finalizeSubmit();
-                        });
-
-                } catch (error) {
-                    console.error("Error al preparar los datos para guardar:", error);
-                    showMessage('Error Interno', `Ocurrió un error inesperado al preparar los datos. ${error.message}`);
-                    finalizeSubmit();
+                // --- DATA ASSEMBLY ---
+                let organo = document.getElementById('proc-organo').value;
+                if (organo === 'otros') {
+                    organo = document.getElementById('proc-organo-otro').value.trim();
                 }
+
+                const dateValue = document.getElementById('proc-datetime').value;
+                const dateParts = dateValue.split('-');
+                const localDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+
+                const procedureData = {
+                    id: `proc_${Date.now()}`,
+                    datetime: localDate,
+                    sector: document.getElementById('proc-sector').value,
+                    organo: organo,
+                    tipoSecuestro: tipoSecuestro,
+                    responsable: responsableData,
+                    items: tempItems,
+                    createdBy: currentUser.username,
+                    createdByName: currentUser.name,
+                    createdAt: new Date()
+                };
+                
+                // --- SIMULATED SAVE ---
+                console.log("Datos a guardar (simulación):", JSON.stringify(procedureData, null, 2));
+                allProcedures.push(procedureData);
+
+                setTimeout(() => { // Simulate network delay
+                    showMessage('Éxito', 'Procedimiento guardado correctamente (simulación).');
+                    navigateTo('load-procedure');
+                }, 500);
             });
         }
         
@@ -886,14 +834,14 @@
             let filteredData = [...allProcedures];
 
             if (filters.startDate) {
-                const start = Timestamp.fromDate(new Date(filters.startDate));
-                filteredData = filteredData.filter(p => p.datetime.seconds >= start.seconds);
+                const start = new Date(filters.startDate).getTime();
+                filteredData = filteredData.filter(p => p.datetime.getTime() >= start);
             }
             if (filters.endDate) {
                 const end = new Date(filters.endDate);
                 end.setDate(end.getDate() + 1);
-                const endTimestamp = Timestamp.fromDate(end);
-                filteredData = filteredData.filter(p => p.datetime.seconds < endTimestamp.seconds);
+                const endTime = end.getTime();
+                filteredData = filteredData.filter(p => p.datetime.getTime() < endTime);
             }
             if (filters.sectors && filters.sectors.length > 0) {
                 filteredData = filteredData.filter(p => filters.sectors.includes(p.sector));
@@ -906,7 +854,7 @@
             }
 
             tableBody.innerHTML = filteredData.map(proc => {
-                const date = proc.datetime.toDate().toLocaleDateString('es-AR');
+                const date = proc.datetime.toLocaleDateString('es-AR');
                 const itemsSummary = proc.items.map(item => `${item.subtype} (${item.type})`).join(', ');
                 let responsableInfo = 'N/A';
                 if (proc.responsable) {
@@ -1001,14 +949,14 @@
             let dataToProcess = [...allProcedures];
 
             if (filters.startDate) {
-                const start = Timestamp.fromDate(new Date(filters.startDate));
-                dataToProcess = dataToProcess.filter(p => p.datetime.seconds >= start.seconds);
+                const start = new Date(filters.startDate).getTime();
+                dataToProcess = dataToProcess.filter(p => p.datetime.getTime() >= start);
             }
             if (filters.endDate) {
                 const end = new Date(filters.endDate);
                 end.setDate(end.getDate() + 1);
-                const endTimestamp = Timestamp.fromDate(end);
-                dataToProcess = dataToProcess.filter(p => p.datetime.seconds < endTimestamp.seconds);
+                const endTime = end.getTime();
+                dataToProcess = dataToProcess.filter(p => p.datetime.getTime() < endTime);
             }
 
             const head = document.getElementById('quantitative-table-head');
