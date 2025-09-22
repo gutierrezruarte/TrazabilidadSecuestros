@@ -127,11 +127,7 @@
             <!-- Contenido Principal -->
             <main class="flex-1 p-6 md:p-8 overflow-y-auto">
                 <div id="content-area">
-                    <div id="welcome-message" class="text-center">
-                        <h2 class="text-4xl font-bold text-accent-600">Bienvenido al Portal</h2>
-                        <p class="mt-4 text-lg text-gray-600">Seleccione una opción del menú para comenzar.</p>
-                    </div>
-                    <!-- Las vistas se cargarán aquí -->
+                    <!-- El contenido dinámico se carga aquí -->
                 </div>
             </main>
         </div>
@@ -166,17 +162,13 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { 
             getFirestore,
-            doc,
-            getDoc,
             collection,
             addDoc,
             getDocs,
-            query,
-            where,
             Timestamp
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- CONFIGURACION DE FIREBASE (USAR VARIABLES GLOBALES) ---
+        // --- CONFIGURACION DE FIREBASE ---
          const firebaseConfig = {
             apiKey: "AIzaSyCm8rUlizlnKoYnVNgwQXOMf4ISgT8Sdco",
             authDomain: "trazabiidadsecuestros.firebaseapp.com",
@@ -187,14 +179,12 @@
             measurementId: "G-GKKZ0TE1F4"
         };
             
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
         // --- ESTADO DE LA APLICACION ---
         let currentUser = null;
-        let allProcedures = []; // Cache for procedures
+        let allProcedures = [];
 
         // --- DATOS MAESTROS ---
         const ROLES = ['Servicio de Guardia', 'G.E.A.R.', 'Body Scanner', 'Jefe de Seguridad', 'Secretaría de Seguridad o Dirección', 'Director', 'Departamento Seguridad', 'Departamento Inspección', 'Admin'];
@@ -277,44 +267,31 @@
             cancelButton.onclick = close;
         }
 
-        async function initApp() {
+        function initApp() {
             document.getElementById('login-form').addEventListener('submit', handleLogin);
             document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
             const sessionUser = sessionStorage.getItem('currentUser');
             if (sessionUser) {
                 currentUser = JSON.parse(sessionUser);
-                await fetchAllProcedures();
                 showPortal();
             }
         }
         
-        async function handleLogin(e) {
+        function handleLogin(e) {
             e.preventDefault();
-            console.log("Comenzando intento de inicio de sesión...");
             const username = e.target.username.value;
             const password = e.target.password.value;
             const errorP = document.getElementById('login-error');
             errorP.textContent = '';
             
-            console.log("Usuario del formulario:", username);
-            console.log("Contraseña del formulario:", password);
-
             const user = usersDB[username];
-            console.log("Objeto de usuario encontrado en la BD local:", user);
 
             if (user && user.password === password) {
-                console.log("¡Éxito! Usuario y contraseña coinciden.");
                 currentUser = { username, ...user };
                 sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
-                
-                console.log("Cargando procedimientos...");
-                await fetchAllProcedures();
-                console.log("Procedimientos cargados. Mostrando el portal.");
-                
                 showPortal();
             } else {
-                console.error("Fallo el inicio de sesión. Usuario no encontrado o contraseña incorrecta.");
                 errorP.textContent = 'Usuario o contraseña incorrectos.';
             }
         }
@@ -341,7 +318,7 @@
             document.getElementById('main-portal').classList.add('hidden');
         }
 
-        function showPortal() {
+        async function showPortal() {
             document.getElementById('login-section').classList.add('hidden');
             document.getElementById('main-portal').classList.remove('hidden');
             document.getElementById('user-info').innerHTML = `
@@ -349,6 +326,17 @@
                 <p class="text-xs text-gray-300">${currentUser.role}</p>
             `;
             setupMenu();
+
+            const contentArea = document.getElementById('content-area');
+            contentArea.innerHTML = `
+                <div class="text-center p-10">
+                    <i class="fas fa-spinner fa-spin text-4xl text-accent-500"></i>
+                    <p class="mt-4 text-lg text-gray-600">Cargando datos de procedimientos...</p>
+                </div>
+            `;
+            
+            await fetchAllProcedures();
+            
             navigateTo('welcome');
         }
         
@@ -594,7 +582,6 @@
                             </div>
                         `;
                     });
-                    // Add listeners for dependent fields
                     const camaraCheckbox = document.getElementById('field-tieneCamara');
                     if (camaraCheckbox) {
                         camaraCheckbox.addEventListener('change', (e) => {
@@ -672,12 +659,12 @@
                 try {
                     const docRef = await addDoc(collection(db, "procedures"), procedureData);
                     console.log("Document written with ID: ", docRef.id);
-                    await fetchAllProcedures(); // Refresh local cache
+                    await fetchAllProcedures();
                     showMessage('Éxito', 'Procedimiento guardado correctamente en la base de datos.');
                     navigateTo('load-procedure');
                 } catch (error) {
-                    console.error("Error adding document: ", error);
-                    showMessage('Error', 'No se pudo guardar el procedimiento.');
+                    console.error("Error al guardar el documento: ", error);
+                    showMessage('Error al Guardar', `No se pudo guardar el procedimiento. Verifique la consola para más detalles. Error: ${error.message}`);
                 }
             });
         }
@@ -848,7 +835,6 @@
                 filteredData = filteredData.filter(p => p.datetime.seconds >= start.seconds);
             }
             if (filters.endDate) {
-                // Add 1 day to include the end date fully
                 const end = new Date(filters.endDate);
                 end.setDate(end.getDate() + 1);
                 const endTimestamp = Timestamp.fromDate(end);
