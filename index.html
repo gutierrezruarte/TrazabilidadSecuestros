@@ -644,12 +644,23 @@
             });
 
             const procedureForm = document.getElementById('procedure-form');
-            procedureForm.addEventListener('submit', async (e) => {
+            procedureForm.addEventListener('submit', (e) => {
                 e.preventDefault();
                 const submitButton = procedureForm.querySelector('button[type="submit"]');
 
+                const originalButtonText = submitButton.innerHTML;
+                submitButton.disabled = true;
+                submitButton.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Guardando...`;
+
+                const finalizeSubmit = () => {
+                    submitButton.disabled = false;
+                    submitButton.innerHTML = originalButtonText;
+                };
+
+                // --- VALIDATION ---
                 if (tempItems.length === 0) {
-                    showMessage('Error', 'Debe añadir al menos un elemento secuestrado al procedimiento.');
+                    showMessage('Error', 'Debe añadir al menos un elemento secuestrado.');
+                    finalizeSubmit();
                     return;
                 }
 
@@ -657,21 +668,18 @@
                 const responsableData = getResponsableData();
 
                 if (tipoSecuestro === 'CON RESPONSABLE' && (!responsableData || !responsableData.tipo)) {
-                    showMessage('Validación Fallida', 'Si el secuestro es "Con Responsable", debe seleccionar un tipo (Interno, Visita o Agente).');
+                    showMessage('Validación Fallida', 'Debe seleccionar un tipo de responsable.');
+                    finalizeSubmit();
                     return;
                 }
 
-                const originalButtonText = submitButton.innerHTML;
-                submitButton.disabled = true;
-                submitButton.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Guardando...`;
-
-                let success = false;
+                // --- DATA ASSEMBLY & FIRESTORE CALL ---
                 try {
                     let organo = document.getElementById('proc-organo').value;
                     if (organo === 'otros') {
                         organo = document.getElementById('proc-organo-otro').value.trim();
                     }
-                    
+
                     const dateValue = document.getElementById('proc-datetime').value;
                     const dateParts = dateValue.split('-');
                     const localDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
@@ -688,25 +696,27 @@
                         createdAt: Timestamp.now()
                     };
                     
-                    console.log("Intentando guardar procedimiento:", JSON.stringify(procedureData, null, 2));
-                    const docRef = await addDoc(collection(db, "procedures"), procedureData);
-                    console.log("Documento guardado con ID: ", docRef.id);
-                    success = true;
+                    console.log("Datos a guardar:", JSON.stringify(procedureData, null, 2));
+
+                    addDoc(collection(db, "procedures"), procedureData)
+                        .then(docRef => {
+                            console.log("Documento guardado con ID:", docRef.id);
+                            proceduresPromise = null; // Invalidate cache
+                            fetchAllProcedures().then(() => {
+                                showMessage('Éxito', 'Procedimiento guardado correctamente.');
+                                navigateTo('load-procedure');
+                            });
+                        })
+                        .catch(error => {
+                            console.error("Error al guardar en Firestore:", error);
+                            showMessage('Error al Guardar', `No se pudo guardar. Error: ${error.message}`);
+                            finalizeSubmit();
+                        });
 
                 } catch (error) {
-                    console.error("Error al guardar el documento: ", error);
-                    showMessage('Error al Guardar', `No se pudo guardar el procedimiento. Error: ${error.message}`);
-                } finally {
-                    submitButton.disabled = false;
-                    submitButton.innerHTML = originalButtonText;
-                    console.log("Operación de guardado finalizada. Estado del botón restaurado.");
-                }
-
-                if(success) {
-                    proceduresPromise = null; // Invalidate cache
-                    await fetchAllProcedures();
-                    showMessage('Éxito', 'Procedimiento guardado correctamente.');
-                    navigateTo('load-procedure');
+                    console.error("Error al preparar los datos para guardar:", error);
+                    showMessage('Error Interno', `Ocurrió un error inesperado al preparar los datos. ${error.message}`);
+                    finalizeSubmit();
                 }
             });
         }
