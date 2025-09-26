@@ -194,6 +194,24 @@
         </div>
     </div>
 
+    <!-- Modal para ver detalles del procedimiento -->
+    <div id="procedure-details-modal" class="fixed inset-0 z-50 items-center justify-center hidden p-4 modal-backdrop">
+        <div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-auto border-t-4 border-accent-800 flex flex-col" style="max-height: 90vh;">
+            <div class="p-5 border-b flex justify-between items-center">
+                 <h3 class="text-2xl font-semibold text-inst-dark">Detalles del Procedimiento</h3>
+                 <button id="details-modal-close" class="text-gray-400 hover:text-gray-600">&times;</button>
+            </div>
+            <div class="p-6 overflow-y-auto space-y-6">
+                 <!-- Contenido dinámico aquí -->
+                 <div id="details-content"></div>
+            </div>
+             <div class="p-4 bg-gray-50 border-t text-right">
+                <button id="details-modal-close-btn" class="px-5 py-2 bg-accent-500 text-white text-sm font-semibold rounded-lg hover:bg-accent-600">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+
     <script>
         // --- ESTADO DE LA APLICACION ---
         let currentUser = null;
@@ -205,10 +223,10 @@
                 organo: 'Servicio de Guardia',
                 tipoSecuestro: 'SIN RESPONSABLE',
                 responsable: { tipo: 'Ninguno', observaciones: 'Encontrado en patio' },
-                items: [{ type: 'Sustancias', subtype: 'MARIHUANA', details: { peso: '10.5' } }],
+                items: [{ type: 'Sustancias', subtype: 'MARIHUANA', details: { peso: '10.5' }, observaciones: "En un envoltorio" }],
                 createdBy: 'guardia1',
                 createdByName: 'Juan Perez',
-                actuaciones: { tipo: 'SAC', numero: 'SAC-123', autoridad: 'Fiscalia N5', archivoCargado: true }
+                actuaciones: { tipo: 'SAC', numero: 'SAC-123', autoridad: 'Fiscalia N5', archivoCargado: true, fileName: 'acta_SAC_123.pdf' }
             },
             {
                 id: 'proc_2',
@@ -217,7 +235,7 @@
                 organo: 'G.E.A.R.',
                 tipoSecuestro: 'CON RESPONSABLE',
                 responsable: { tipo: 'interno', 'resp-nombre': 'Gomez, Carlos', 'resp-legajo': '12345', 'resp-pabellon': 'A' },
-                items: [{ type: 'Electrónicos', subtype: 'CELULAR', details: { marca: 'Samsung', modelo: 'A10' } }],
+                items: [{ type: 'Electrónicos', subtype: 'CELULAR', details: { marca: 'Samsung', modelo: 'A10' }, observaciones: "" }],
                 createdBy: 'gear1',
                 createdByName: 'Maria Lopez',
                 actuaciones: null
@@ -315,17 +333,25 @@
             document.getElementById('login-form').addEventListener('submit', handleLogin);
             document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
-            // Listeners para el nuevo modal de actuaciones
+            // Listeners modal de actuaciones
             document.getElementById('actuaciones-modal-cancel').addEventListener('click', () => {
                 document.getElementById('actuaciones-modal').classList.add('hidden');
                 document.getElementById('actuaciones-modal').classList.remove('flex');
             });
-
             document.getElementById('actuaciones-tipo').addEventListener('change', (e) => {
                 document.getElementById('autoridad-container').classList.toggle('hidden', e.target.value !== 'SAC');
             });
-
             document.getElementById('actuaciones-form').addEventListener('submit', handleSaveActuaciones);
+
+            // Listeners modal de detalles
+            const closeDetailsButtons = ['details-modal-close', 'details-modal-close-btn'];
+            closeDetailsButtons.forEach(id => {
+                 document.getElementById(id).addEventListener('click', () => {
+                    document.getElementById('procedure-details-modal').classList.add('hidden');
+                    document.getElementById('procedure-details-modal').classList.remove('flex');
+                });
+            });
+
 
             const sessionUser = sessionStorage.getItem('currentUser');
             if (sessionUser) {
@@ -893,13 +919,14 @@
                     <table class="w-full text-sm text-left text-gray-600">
                         <thead class="text-xs text-gray-700 uppercase bg-gray-100">
                             <tr>
-                                <th scope="col" class="px-6 py-3">Fecha</th>
-                                <th scope="col" class="px-6 py-3">Sector</th>
-                                <th scope="col" class="px-6 py-3">Órgano</th>
-                                <th scope="col" class="px-6 py-3">Tipo</th>
-                                <th scope="col" class="px-6 py-3">Responsable</th>
-                                <th scope="col" class="px-6 py-3">Detalle</th>
-                                <th scope="col" class="px-6 py-3">Acciones</th>
+                                <th scope="col" class="px-4 py-3">Fecha</th>
+                                <th scope="col" class="px-4 py-3">Sector</th>
+                                <th scope="col" class="px-4 py-3">Órgano</th>
+                                <th scope="col" class="px-4 py-3">Detalle</th>
+                                <th scope="col" class="px-4 py-3">Tipo Act.</th>
+                                <th scope="col" class="px-4 py-3">N° Act.</th>
+                                <th scope="col" class="px-4 py-3">Autoridad</th>
+                                <th scope="col" class="px-4 py-3 text-center">Acciones</th>
                             </tr>
                         </thead>
                         <tbody id="summary-table-body">
@@ -939,7 +966,7 @@
 
             const tableBody = document.getElementById('summary-table-body');
             if (filteredData.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="7" class="text-center p-8 text-gray-500">No hay datos para mostrar con los filtros seleccionados.</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="8" class="text-center p-8 text-gray-500">No hay datos para mostrar con los filtros seleccionados.</td></tr>`;
                 return;
             }
 
@@ -948,22 +975,23 @@
                 const rowClass = isPending ? 'text-red-600' : 'text-gray-600';
 
                 const date = proc.datetime.toLocaleDateString('es-AR');
-                const itemsSummary = proc.items.map(item => `${item.subtype} (${item.type})`).join(', ');
-                let responsableInfo = 'N/A';
-                if (proc.responsable) {
-                    responsableInfo = proc.responsable.tipo || 'Sin especificar';
-                     if(proc.responsable.tipo === 'interno') responsableInfo = `Interno: ${proc.responsable['resp-nombre'] || ''}`;
-                }
+                const itemsSummary = proc.items.map(item => `${item.subtype}`).join(', ');
+                
+                const actuaciones = proc.actuaciones;
 
                 return `
                     <tr class="hover:bg-gray-50 border-b ${rowClass}">
-                        <td class="px-6 py-4">${date}</td>
-                        <td class="px-6 py-4">${proc.sector}</td>
-                        <td class="px-6 py-4">${proc.organo}</td>
-                        <td class="px-6 py-4">${proc.tipoSecuestro}</td>
-                        <td class="px-6 py-4">${responsableInfo}</td>
-                        <td class="px-6 py-4 text-xs">${itemsSummary}</td>
-                        <td class="px-6 py-4">
+                        <td class="px-4 py-4">${date}</td>
+                        <td class="px-4 py-4">${proc.sector}</td>
+                        <td class="px-4 py-4">${proc.organo}</td>
+                        <td class="px-4 py-4 text-xs">${itemsSummary}</td>
+                        <td class="px-4 py-4">${actuaciones ? actuaciones.tipo : 'Pendiente'}</td>
+                        <td class="px-4 py-4">${actuaciones ? actuaciones.numero : '-'}</td>
+                        <td class="px-4 py-4">${actuaciones && actuaciones.autoridad ? actuaciones.autoridad : '-'}</td>
+                        <td class="px-4 py-4 text-center">
+                            <button onclick="openDetailsModal('${proc.id}')" class="text-blue-600 hover:text-blue-800 mr-3" title="Ver Detalles">
+                                <i class="fas fa-eye"></i>
+                            </button>
                             <button onclick="openActuacionesModal('${proc.id}')" class="text-accent-600 hover:text-accent-800" title="Cargar Actuaciones">
                                 <i class="fas fa-pencil-alt"></i>
                             </button>
@@ -1018,12 +1046,19 @@
             const currentProc = allProcedures[procIndex];
             const hasExistingFile = currentProc.actuaciones ? currentProc.actuaciones.archivoCargado : false;
             const hasNewFile = fileInput.files.length > 0;
+            
+            let fileName = hasExistingFile ? currentProc.actuaciones.fileName : null;
+            if(hasNewFile) {
+                fileName = fileInput.files[0].name;
+            }
+
 
             allProcedures[procIndex].actuaciones = {
                 tipo,
                 numero,
                 autoridad: tipo === 'SAC' ? autoridad : '',
-                archivoCargado: hasNewFile || hasExistingFile
+                archivoCargado: hasNewFile || hasExistingFile,
+                fileName: fileName
             };
 
             document.getElementById('actuaciones-modal').classList.add('hidden');
@@ -1252,6 +1287,7 @@
                                         <th scope="col" class="px-6 py-3">Usuario (DNI)</th>
                                         <th scope="col" class="px-6 py-3">Nombre</th>
                                         <th scope="col" class="px-6 py-3">Rol</th>
+                                        <th scope="col" class="px-6 py-3">Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody id="users-table-body">
@@ -1273,6 +1309,9 @@
                     <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">${username}</td>
                     <td class="px-6 py-4">${user.name}</td>
                     <td class="px-6 py-4">${user.role}</td>
+                    <td class="px-6 py-4">
+                        ${username === '36219951' ? '' : `<button onclick="handleResetPassword('${username}')" class="text-yellow-600 hover:text-yellow-800" title="Blanquear Contraseña"><i class="fas fa-key"></i></button>`}
+                    </td>
                 </tr>
             `).join('');
         }
@@ -1304,6 +1343,117 @@
             showMessage('Éxito', `Usuario '${name}' creado correctamente.`);
             renderUsersTable();
             form.reset();
+        }
+
+        function handleResetPassword(username) {
+            const user = usersDB[username];
+            if (!user) return;
+            showConfirm(
+                'Confirmar Blanqueo',
+                `¿Está seguro que desea blanquear la contraseña para el usuario '${user.name}'? La nueva contraseña será su DNI.`,
+                () => {
+                    usersDB[username].password = username;
+                    showMessage('Éxito', `La contraseña para '${user.name}' ha sido blanqueada. La nueva contraseña es: ${username}`);
+                }
+            );
+        }
+
+        function openDetailsModal(procId) {
+            const proc = allProcedures.find(p => p.id === procId);
+            if (!proc) return;
+
+            const contentDiv = document.getElementById('details-content');
+            
+            // 1. Detalles del Hecho
+            let detailsHtml = `
+                <div class="p-4 border rounded-lg bg-gray-50">
+                    <h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Datos del Hecho</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                        <div><strong class="text-gray-500 block">Fecha:</strong> <span class="text-gray-800">${proc.datetime.toLocaleDateString('es-AR')}</span></div>
+                        <div><strong class="text-gray-500 block">Sector:</strong> <span class="text-gray-800">${proc.sector}</span></div>
+                        <div><strong class="text-gray-500 block">Órgano Actuante:</strong> <span class="text-gray-800">${proc.organo}</span></div>
+                        <div><strong class="text-gray-500 block">Registrado por:</strong> <span class="text-gray-800">${proc.createdByName}</span></div>
+                    </div>
+                </div>
+            `;
+
+            // 2. Detalles del Responsable
+            let responsableHtml = '';
+            if (proc.tipoSecuestro === 'SIN RESPONSABLE') {
+                responsableHtml = `<p>Hallazgo sin responsable.</p><p class="mt-1 text-gray-600 text-sm"><strong>Observaciones:</strong> ${proc.responsable.observaciones || 'Ninguna'}</p>`;
+            } else {
+                 responsableHtml = Object.entries(proc.responsable).map(([key, value]) => {
+                     if (!value) return '';
+                     return `<div><strong class="text-gray-500 block capitalize">${key.replace('resp-','').replace('-',' ')}:</strong> <span class="text-gray-800">${value}</span></div>`;
+                 }).join('');
+            }
+             detailsHtml += `
+                <div class="p-4 border rounded-lg bg-gray-50">
+                    <h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Responsable</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">${responsableHtml}</div>
+                </div>
+            `;
+            
+            // 3. Elementos Secuestrados
+             let itemsHtml = proc.items.map(item => {
+                 let itemDetails = Object.entries(item.details).map(([key, value]) => {
+                     const fieldConfig = ELEMENTOS_CONFIG[item.type][item.subtype].find(f => f.name === key);
+                     if (!value) return '';
+                     return `<li class="text-xs"><strong class="font-medium text-gray-600">${fieldConfig.label}:</strong> ${value === true ? 'Sí' : value}</li>`;
+                 }).join('');
+                 if(item.observaciones) {
+                     itemDetails += `<li class="text-xs"><strong class="font-medium text-gray-600">Obs:</strong> ${item.observaciones}</li>`;
+                 }
+                 return `
+                    <div class="p-3 border rounded-md bg-white">
+                        <p class="font-bold text-gray-800">${item.subtype} <span class="text-gray-500 font-normal">(${item.type})</span></p>
+                        <ul class="list-disc list-inside ml-2 mt-1 space-y-1">${itemDetails}</ul>
+                    </div>
+                 `;
+             }).join('');
+              detailsHtml += `
+                <div class="p-4 border rounded-lg bg-gray-50">
+                    <h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Elementos Secuestrados</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">${itemsHtml}</div>
+                </div>
+            `;
+
+            // 4. Actuaciones y PDF
+            let actuacionesHtml = '';
+            if (proc.actuaciones) {
+                 actuacionesHtml = `
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                        <div><strong class="text-gray-500 block">Tipo:</strong> <span class="text-gray-800">${proc.actuaciones.tipo}</span></div>
+                        <div><strong class="text-gray-500 block">Número:</strong> <span class="text-gray-800">${proc.actuaciones.numero}</span></div>
+                        ${proc.actuaciones.autoridad ? `<div><strong class="text-gray-500 block">Autoridad:</strong> <span class="text-gray-800">${proc.actuaciones.autoridad}</span></div>` : ''}
+                    </div>
+                 `;
+                 if (proc.actuaciones.archivoCargado) {
+                    actuacionesHtml += `
+                        <div class="mt-4 border-t pt-4">
+                            <p class="text-sm font-semibold text-gray-700 mb-2">Archivo Adjunto</p>
+                            <div class="border-2 border-dashed rounded-lg p-4 text-center bg-white">
+                                <i class="far fa-file-pdf fa-3x text-red-500 mb-2"></i>
+                                <p class="font-semibold text-gray-800">${proc.actuaciones.fileName || 'documento.pdf'}</p>
+                                <p class="text-xs text-gray-500 mt-1">La previsualización de archivos no está disponible en este entorno.</p>
+                            </div>
+                        </div>
+                    `;
+                 }
+            } else {
+                actuacionesHtml = `<p class="text-sm text-gray-500">Aún no se han cargado actuaciones para este procedimiento.</p>`;
+            }
+            detailsHtml += `
+                <div class="p-4 border rounded-lg bg-gray-50">
+                    <h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Actuaciones</h4>
+                    ${actuacionesHtml}
+                </div>
+            `;
+
+
+            contentDiv.innerHTML = detailsHtml;
+            document.getElementById('procedure-details-modal').classList.remove('hidden');
+            document.getElementById('procedure-details-modal').classList.add('flex');
         }
 
         document.addEventListener('DOMContentLoaded', initApp);
