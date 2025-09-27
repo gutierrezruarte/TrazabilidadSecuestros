@@ -346,21 +346,21 @@
             const errorP = document.getElementById('login-error');
             errorP.textContent = '';
             
-            // Usamos un dominio ficticio para que el DNI funcione como email en Firebase Auth
             const email = `${dni}@trazabilidad.app`;
 
             try {
                 await signInWithEmailAndPassword(auth, email, password);
-                // onAuthStateChanged se encargará del resto
                 showPortal();
             } catch (error) {
                 console.error("Error de inicio de sesión:", error);
-                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-                    errorP.textContent = 'Usuario o contraseña incorrectos.';
+                // The 'auth/invalid-credential' error code is general for recent Firebase versions.
+                // It covers cases like user not found, wrong password, etc.
+                if (error.code === 'auth/invalid-credential') {
+                    errorP.textContent = 'Usuario o contraseña incorrectos. Verifique los datos o contacte al administrador.';
                 } else if (error.code === 'auth/configuration-not-found') {
                     errorP.textContent = 'Error de Configuración: Habilite "Email/Contraseña" en su Firebase Auth.';
                 } else {
-                    errorP.textContent = 'Ocurrió un error. Intente nuevamente.';
+                    errorP.textContent = 'Ocurrió un error inesperado. Intente nuevamente.';
                 }
             } finally {
                 toggleSpinner('login-btn', false);
