@@ -248,7 +248,7 @@
         const ROLES = [
             'Servicio de Guardia', 'G.E.A.R.', 'Body Scanner', 'Jefe de Seguridad', 
             'Departamento Inspección', 'Departamento Seguridad', 'Organos Judiciales', 
-            'Secretaría de Seguridad o Dirección', 'Director', 'Admin'
+            'Secretaría de Seguridad o Dirección', 'Director', 'Admin', 'Consultor'
         ];
         const SECTORES = ['C.C.N° 1 - MD1', 'C.C.N° 1 - M2', 'C.C.N° 1 - MAD', 'C.C.N° 1 - MX1', 'C.C.N° 1 - MX2', 'C.C.N° 2 - M1', 'C.C.N° 2 - M2', 'C.C.N° 2 - GRANJA', 'E.P.N° 3', 'E.P.N° 4', 'E.P.N° 5', 'E.P.N° 6', 'E.P.N° 7', 'E.P.N° 8', 'E.P.N° 9 - UCA'];
         const ORGANOS = ['Servicio de Guardia', 'G.E.A.R.', 'Body Scanner', 'Jefe de Seguridad'];
@@ -353,8 +353,6 @@
                 showPortal();
             } catch (error) {
                 console.error("Error de inicio de sesión:", error);
-                // The 'auth/invalid-credential' error code is general for recent Firebase versions.
-                // It covers cases like user not found, wrong password, etc.
                 if (error.code === 'auth/invalid-credential') {
                     errorP.textContent = 'Usuario o contraseña incorrectos. Verifique los datos o contacte al administrador.';
                 } else if (error.code === 'auth/configuration-not-found') {
@@ -478,6 +476,11 @@
         
         async function handleSaveProcedure(e) {
             e.preventDefault();
+            if (currentUser.role === 'Consultor') {
+                showMessage('Acceso Denegado', 'Su rol de "Consultor" no tiene permisos para cargar datos.');
+                return;
+            }
+
             const form = e.target;
             const submitButton = form.querySelector('button[type="submit"]');
             const originalButtonText = submitButton.innerHTML;
@@ -537,6 +540,10 @@
 
         async function handleSaveActuaciones(e) {
             e.preventDefault();
+            if (currentUser.role === 'Consultor') {
+                showMessage('Acceso Denegado', 'Su rol de "Consultor" no tiene permisos para modificar datos.');
+                return;
+            }
             toggleSpinner('actuaciones', true);
 
             const procId = document.getElementById('actuaciones-proc-id').value;
@@ -578,7 +585,11 @@
                 showMessage('Éxito', 'Actuaciones actualizadas correctamente.');
             } catch (error) {
                 console.error("Error guardando actuaciones: ", error);
-                showMessage("Error", "No se pudieron guardar las actuaciones. Intente de nuevo.");
+                if (error.code === 'storage/unauthorized') {
+                    showMessage("Error de Permisos", "No se pudo subir el archivo. Verifique las reglas de seguridad de Firebase Storage en su proyecto. Se requiere permiso de escritura para usuarios autenticados.");
+                } else {
+                    showMessage("Error", "No se pudieron guardar las actuaciones. Revise la consola para más detalles.");
+                }
             } finally {
                 toggleSpinner('actuaciones', false);
             }
@@ -794,6 +805,7 @@
             if (filteredData.length === 0) { tableBody.innerHTML = `<tr><td colspan="8" class="text-center p-8 text-gray-500">No hay datos para mostrar.</td></tr>`; return; }
 
             tableBody.innerHTML = filteredData.map(proc => {
+                const canModify = currentUser.role !== 'Consultor';
                 const isPending = !proc.actuaciones || !proc.actuaciones.archivoCargado;
                 const date = proc.datetime.toLocaleDateString('es-AR');
                 const itemsSummary = proc.items.map(item => `${item.subtype}`).join(', ');
@@ -804,13 +816,11 @@
                         <td class="px-4 py-4">${proc.actuaciones ? proc.actuaciones.numero : '-'}</td> <td class="px-4 py-4">${proc.actuaciones && proc.actuaciones.autoridad ? proc.actuaciones.autoridad : '-'}</td>
                         <td class="px-4 py-4 text-center">
                             <button onclick="openDetailsModal('${proc.id}')" class="text-blue-600 hover:text-blue-800 mr-3" title="Ver Detalles"><i class="fas fa-eye"></i></button>
-                            <button onclick="openActuacionesModal('${proc.id}')" class="text-accent-600 hover:text-accent-800" title="Cargar Actuaciones"><i class="fas fa-pencil-alt"></i></button>
+                            ${canModify ? `<button onclick="openActuacionesModal('${proc.id}')" class="text-accent-600 hover:text-accent-800" title="Cargar Actuaciones"><i class="fas fa-pencil-alt"></i></button>` : ''}
                         </td>
                     </tr>`;
             }).join('');
         }
-        
-        // ... (el resto de las funciones de renderizado y lógica se mantienen similares pero usando `allProcedures` que se actualiza en tiempo real) ...
         
         function getCurrentSummaryFilters() {
             const startDate = document.getElementById('filter-start-date').value;
