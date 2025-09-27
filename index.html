@@ -215,41 +215,12 @@
         </div>
     </div>
 
-    <!-- Modal para Editar Usuario -->
-    <div id="edit-user-modal" class="fixed inset-0 z-50 items-center justify-center hidden p-4 modal-backdrop">
-        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-3xl w-full mx-auto border-t-4 border-accent-700">
-            <h3 class="text-xl font-semibold text-inst-dark mb-4">Editar Usuario</h3>
-            <form id="edit-user-form" class="space-y-4">
-                <input type="hidden" id="edit-user-id">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><label for="edit-user-dni" class="block text-sm font-medium text-gray-700">Usuario (DNI)</label><input type="text" id="edit-user-dni" class="w-full px-3 py-2 mt-1 bg-gray-100 border border-gray-300 rounded-lg" readonly></div>
-                    <div><label for="edit-user-name" class="block text-sm font-medium text-gray-700">Nombre Completo</label><input type="text" id="edit-user-name" class="w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-lg shadow-sm" required></div>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><label for="edit-user-role" class="block text-sm font-medium text-gray-700">Rol</label><select id="edit-user-role" class="w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-lg shadow-sm" required></select></div>
-                    <div><label class="block text-sm font-medium text-gray-700">Alcances (Sectores)</label><div id="edit-user-scope" class="mt-1 p-2 border border-gray-300 rounded-lg bg-white max-h-40 overflow-y-auto grid grid-cols-2 gap-2"></div></div>
-                </div>
-                <div>
-                    <label class="flex items-center space-x-2 text-sm font-medium text-gray-700">
-                        <input type="checkbox" id="edit-user-can-delete" class="h-4 w-4 rounded border-gray-300 text-accent-600 focus:ring-accent-500">
-                        <span>Puede eliminar procedimientos</span>
-                    </label>
-                </div>
-                <div class="mt-6 flex justify-end space-x-3">
-                    <button type="button" id="edit-user-modal-cancel" class="px-5 py-2 bg-gray-200 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-300">Cancelar</button>
-                    <button type="submit" class="px-5 py-2 bg-accent-600 text-white text-sm font-semibold rounded-lg hover:bg-accent-700">Guardar Cambios</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getFirestore, collection, getDocs, doc, getDoc, setDoc, addDoc, onSnapshot, query, where, updateDoc, Timestamp, orderBy, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+        import { getFirestore, collection, getDocs, doc, getDoc, setDoc, addDoc, onSnapshot, query, where, updateDoc, Timestamp, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -301,9 +272,6 @@
         window.openDetailsModal = openDetailsModal;
         window.openActuacionesModal = openActuacionesModal;
         window.handleResetPassword = handleResetPassword;
-        window.handleDeleteProcedure = handleDeleteProcedure;
-        window.openEditUserModal = openEditUserModal;
-        window.handleToggleUserStatus = handleToggleUserStatus;
 
         // --- LÓGICA DE LA APLICACIÓN ---
         
@@ -354,19 +322,14 @@
             if (user) {
                 const userDocRef = doc(db, "users", user.uid);
                 const userDoc = await getDoc(userDocRef);
-                if (userDoc.exists() && userDoc.data().active) {
-                    currentUser = { id: user.uid, email: user.email, ...userDoc.data() };
+                if (userDoc.exists()) {
+                    currentUser = { uid: user.uid, email: user.email, ...userDoc.data() };
                     sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
                     if(document.getElementById('login-section').classList.contains('hidden')) {
                         showPortal(); // Refresh portal if already logged in
-                    } else {
-                        showPortal();
                     }
                 } else {
-                    if (userDoc.exists() && !userDoc.data().active) {
-                        console.log('Login attempt by inactive user:', user.email);
-                    }
-                    await handleLogout();
+                    await handleLogout(); // User exists in Auth but not in DB, force logout
                 }
             } else {
                 currentUser = null;
@@ -386,23 +349,14 @@
             const email = `${dni}@trazabilidad.app`;
 
             try {
-                const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                const user = userCredential.user;
-
-                // Chequeo inmediato del estado del usuario en Firestore
-                const userDocRef = doc(db, "users", user.uid);
-                const userDoc = await getDoc(userDocRef);
-
-                if (!userDoc.exists() || !userDoc.data().active) {
-                    await signOut(auth); // Desloguear si no está activo o no existe en DB
-                    errorP.textContent = 'Su usuario está desactivado o no tiene un perfil. Contacte al administrador.';
-                }
-                // Si todo está bien, onAuthStateChanged se encargará del resto.
-
+                await signInWithEmailAndPassword(auth, email, password);
+                showPortal();
             } catch (error) {
                 console.error("Error de inicio de sesión:", error);
                 if (error.code === 'auth/invalid-credential') {
-                    errorP.textContent = 'Usuario o contraseña incorrectos. Verifique los datos.';
+                    errorP.textContent = 'Usuario o contraseña incorrectos. Verifique los datos o contacte al administrador.';
+                } else if (error.code === 'auth/configuration-not-found') {
+                    errorP.textContent = 'Error de Configuración: Habilite "Email/Contraseña" en su Firebase Auth.';
                 } else {
                     errorP.textContent = 'Ocurrió un error inesperado. Intente nuevamente.';
                 }
@@ -413,10 +367,11 @@
 
         async function handleLogout() {
             if (proceduresUnsubscribe) {
-                proceduresUnsubscribe();
+                proceduresUnsubscribe(); // Detener el listener de Firestore
                 proceduresUnsubscribe = null;
             }
             await signOut(auth);
+            // onAuthStateChanged se encargará de mostrar la pantalla de login
         }
 
         function showLogin() {
@@ -442,13 +397,17 @@
         function setupMenu() {
             const menu = document.getElementById('main-menu');
             menu.innerHTML = '';
+            
             const canLoad = ['Servicio de Guardia', 'G.E.A.R.', 'Body Scanner', 'Jefe de Seguridad', 'Admin'].includes(currentUser.role);
+            
             const menuItems = [
                 { id: 'load-procedure', text: 'Cargar Nuevo Procedimiento', icon: 'fa-plus-circle', visible: canLoad },
                 { id: 'summary', text: 'Resumen de Secuestros', icon: 'fa-clipboard-list', visible: true },
                 { id: 'quantitative', text: 'Cuantitativas', icon: 'fa-chart-pie', visible: true },
+                { id: 'incidents', text: 'Incidentes', icon: 'fa-exclamation-triangle', visible: true },
                 { id: 'admin-users', text: 'Administrar Usuarios', icon: 'fa-users-cog', visible: currentUser.role === 'Admin' }
             ];
+
             menuItems.forEach(item => {
                 if (item.visible) {
                     const button = document.createElement('button');
@@ -465,13 +424,21 @@
             document.querySelectorAll('#main-menu button').forEach(btn => btn.classList.remove('active'));
             const activeBtn = document.getElementById(`btn-${viewId}`);
             if(activeBtn) activeBtn.classList.add('active');
+
             const contentArea = document.getElementById('content-area');
-            const welcomeView = `<div id="welcome-message" class="text-center"><h2 class="text-4xl font-bold text-accent-600">Bienvenido al Portal</h2><p class="mt-4 text-lg text-gray-600">Seleccione una opción del menú para comenzar.</p></div>`;
+            const welcomeView = `<div id="welcome-message" class="text-center">
+                    <h2 class="text-4xl font-bold text-accent-600">Bienvenido al Portal</h2>
+                    <p class="mt-4 text-lg text-gray-600">Seleccione una opción del menú para comenzar.</p>
+                </div>`;
+
             switch (viewId) {
                 case 'welcome': contentArea.innerHTML = welcomeView; break;
                 case 'load-procedure': renderLoadProcedureForm(contentArea); break;
                 case 'summary': renderSummaryView(contentArea); break;
                 case 'quantitative': renderQuantitativeView(contentArea); break;
+                case 'incidents':
+                    contentArea.innerHTML = `<h2 class="text-3xl font-bold text-inst-dark mb-4">Gestión de Incidentes</h2><div class="bg-white p-6 rounded-xl shadow-lg border"><p class="text-gray-600">Esta sección está en desarrollo.</p></div>`;
+                    break;
                 case 'admin-users': renderAdminUsersView(contentArea); break;
                 default: contentArea.innerHTML = welcomeView;
             }
@@ -480,12 +447,26 @@
         // --- LÓGICA DE PROCEDIMIENTOS ---
 
         function listenToProcedures() {
-            if (proceduresUnsubscribe) proceduresUnsubscribe();
+            if (proceduresUnsubscribe) proceduresUnsubscribe(); // Detener listener anterior
+            
             const q = query(collection(db, "procedures"), orderBy("createdAt", "desc"));
+            
             proceduresUnsubscribe = onSnapshot(q, (querySnapshot) => {
-                allProcedures = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), datetime: doc.data().datetime.toDate(), createdAt: doc.data().createdAt.toDate() }));
+                allProcedures = [];
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    allProcedures.push({
+                        id: doc.id,
+                        ...data,
+                        datetime: data.datetime.toDate(),
+                        createdAt: data.createdAt.toDate()
+                    });
+                });
+                
+                // Si la vista de resumen está activa, la refrescamos
                 if (document.getElementById('summary-table-body')) {
-                    loadAndDisplaySummaryData(getCurrentSummaryFilters());
+                    const filters = getCurrentSummaryFilters();
+                    loadAndDisplaySummaryData(filters);
                 }
             }, (error) => {
                 console.error("Error escuchando procedimientos:", error);
@@ -496,104 +477,125 @@
         async function handleSaveProcedure(e) {
             e.preventDefault();
             if (currentUser.role === 'Consultor') {
-                showMessage('Acceso Denegado', 'Su rol no tiene permisos para cargar datos.');
+                showMessage('Acceso Denegado', 'Su rol de "Consultor" no tiene permisos para cargar datos.');
                 return;
             }
+
             const form = e.target;
             const submitButton = form.querySelector('button[type="submit"]');
+            const originalButtonText = submitButton.innerHTML;
             submitButton.disabled = true;
             submitButton.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Guardando...`;
+
             const tempItems = JSON.parse(form.dataset.tempItems || '[]');
+
             if (tempItems.length === 0) {
                 showMessage('Error', 'Debe añadir al menos un elemento secuestrado.');
                 submitButton.disabled = false;
-                submitButton.innerHTML = 'Guardar Procedimiento';
+                submitButton.innerHTML = originalButtonText;
                 return;
             }
+
+            const tipoSecuestro = form.querySelector('input[name="tipoSecuestro"]:checked').value;
+            const responsableData = getResponsableData(form);
+
+            if (tipoSecuestro === 'CON RESPONSABLE' && (!responsableData || !responsableData.tipo)) {
+                showMessage('Validación Fallida', 'Debe seleccionar un tipo de responsable.');
+                submitButton.disabled = false;
+                submitButton.innerHTML = originalButtonText;
+                return;
+            }
+
+            let organo = form.querySelector('#proc-organo').value;
+            if (organo === 'otros') organo = form.querySelector('#proc-organo-otro').value.trim();
+
+            const dateValue = form.querySelector('#proc-datetime').value;
+            const dateParts = dateValue.split('-');
+            const localDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+
+            const procedureData = {
+                datetime: Timestamp.fromDate(localDate),
+                sector: form.querySelector('#proc-sector').value,
+                organo: organo,
+                tipoSecuestro: tipoSecuestro,
+                responsable: responsableData,
+                items: tempItems,
+                createdBy: currentUser.uid,
+                createdByName: currentUser.name,
+                createdAt: Timestamp.now(),
+                actuaciones: null
+            };
+            
             try {
-                const tipoSecuestro = form.querySelector('input[name="tipoSecuestro"]:checked').value;
-                const responsableData = getResponsableData(form);
-                if (tipoSecuestro === 'CON RESPONSABLE' && (!responsableData || !responsableData.tipo)) {
-                    throw new Error('Debe seleccionar un tipo de responsable.');
-                }
-                let organo = form.querySelector('#proc-organo').value;
-                if (organo === 'otros') organo = form.querySelector('#proc-organo-otro').value.trim();
-                const dateValue = form.querySelector('#proc-datetime').value;
-                const procedureData = { datetime: Timestamp.fromDate(new Date(dateValue)), sector: form.querySelector('#proc-sector').value, organo, tipoSecuestro, responsable: responsableData, items: tempItems, createdBy: currentUser.id, createdByName: currentUser.name, createdAt: Timestamp.now(), actuaciones: null };
                 await addDoc(collection(db, "procedures"), procedureData);
                 showMessage('Éxito', 'Procedimiento guardado correctamente.');
-                navigateTo('load-procedure');
+                navigateTo('load-procedure'); // Recarga el formulario
             } catch (error) {
                 console.error("Error guardando procedimiento:", error);
-                showMessage('Error', `No se pudo guardar el procedimiento. ${error.message}`);
+                showMessage('Error', 'No se pudo guardar el procedimiento. Verifique su conexión.');
                 submitButton.disabled = false;
-                submitButton.innerHTML = 'Guardar Procedimiento';
+                submitButton.innerHTML = originalButtonText;
             }
         }
 
         async function handleSaveActuaciones(e) {
             e.preventDefault();
             if (currentUser.role === 'Consultor') {
-                showMessage('Acceso Denegado', 'Su rol no tiene permisos para modificar datos.');
+                showMessage('Acceso Denegado', 'Su rol de "Consultor" no tiene permisos para modificar datos.');
                 return;
             }
             toggleSpinner('actuaciones', true);
+
             const procId = document.getElementById('actuaciones-proc-id').value;
-            const file = document.getElementById('actuaciones-archivo').files[0];
+            const procRef = doc(db, "procedures", procId);
+            
+            const tipo = document.getElementById('actuaciones-tipo').value;
+            const numero = document.getElementById('actuaciones-numero').value;
+            const autoridad = document.getElementById('actuaciones-autoridad').value;
+            const fileInput = document.getElementById('actuaciones-archivo');
+            const file = fileInput.files[0];
+
+            if (!tipo || !numero) {
+                showMessage('Error', 'Debe seleccionar un tipo y completar el número/identificador.');
+                toggleSpinner('actuaciones', false);
+                return;
+            }
+            
             try {
-                const procRef = doc(db, "procedures", procId);
                 const procDoc = await getDoc(procRef);
                 const currentProc = procDoc.data();
+                
                 let actuacionesData = currentProc.actuaciones || {};
-                actuacionesData.tipo = document.getElementById('actuaciones-tipo').value;
-                actuacionesData.numero = document.getElementById('actuaciones-numero').value;
-                actuacionesData.autoridad = document.getElementById('actuaciones-tipo').value === 'SAC' ? document.getElementById('actuaciones-autoridad').value : '';
+                actuacionesData.tipo = tipo;
+                actuacionesData.numero = numero;
+                actuacionesData.autoridad = tipo === 'SAC' ? autoridad : '';
+
                 if (file) {
                     const storageRef = ref(storage, `actuaciones/${procId}/${file.name}`);
                     await uploadBytes(storageRef, file);
                     actuacionesData.fileURL = await getDownloadURL(storageRef);
                     actuacionesData.fileName = file.name;
+                    actuacionesData.archivoCargado = true;
                 }
+                
                 await updateDoc(procRef, { actuaciones: actuacionesData });
+                
                 document.getElementById('actuaciones-modal').classList.add('hidden');
+                document.getElementById('actuaciones-modal').classList.remove('flex');
                 showMessage('Éxito', 'Actuaciones actualizadas correctamente.');
             } catch (error) {
                 console.error("Error guardando actuaciones: ", error);
                 if (error.code === 'storage/unauthorized') {
-                    showMessage("Error de Permisos", "No se pudo subir el archivo. Verifique las reglas de seguridad de Firebase Storage.");
+                    showMessage("Error de Permisos", "No se pudo subir el archivo. Verifique las reglas de seguridad de Firebase Storage en su proyecto. Se requiere permiso de escritura para usuarios autenticados.");
                 } else {
-                    showMessage("Error", "No se pudieron guardar las actuaciones.");
+                    showMessage("Error", "No se pudieron guardar las actuaciones. Revise la consola para más detalles.");
                 }
             } finally {
                 toggleSpinner('actuaciones', false);
             }
         }
         
-        async function handleDeleteProcedure(procId) {
-            const proc = allProcedures.find(p => p.id === procId);
-            if (!proc) return;
-
-            showConfirm(
-                'Confirmar Eliminación',
-                `¿Está seguro de que desea eliminar permanentemente este procedimiento del ${proc.datetime.toLocaleDateString('es-AR')}? Esta acción no se puede deshacer.`,
-                async () => {
-                    try {
-                        // Delete file from Storage first, if it exists
-                        if (proc.actuaciones && proc.actuaciones.fileName) {
-                            const fileRef = ref(storage, `actuaciones/${procId}/${proc.actuaciones.fileName}`);
-                            await deleteObject(fileRef);
-                        }
-                        // Then delete the document from Firestore
-                        await deleteDoc(doc(db, "procedures", procId));
-                        showMessage('Éxito', 'El procedimiento ha sido eliminado.');
-                        // The onSnapshot listener will automatically refresh the table
-                    } catch (error) {
-                        console.error("Error eliminando procedimiento:", error);
-                        showMessage("Error", "No se pudo eliminar el procedimiento. Verifique los permisos y la conexión.");
-                    }
-                }
-            );
-        }
+        // --- RENDERIZADO DE VISTAS (FORMULARIOS, TABLAS, ETC.) ---
 
         function renderLoadProcedureForm(container) {
             const commonInputClasses = "w-full px-4 py-2 mt-1 bg-white border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-accent-500";
@@ -770,19 +772,33 @@
 
         // --- VISTAS DE RESUMEN Y DATOS ---
         function renderSummaryView(container) {
-             container.innerHTML = `<h2 class="text-3xl font-bold text-inst-dark mb-6">Resumen de Secuestros</h2><div class="p-4 bg-white rounded-xl shadow-lg border mb-6"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end"><div><label for="filter-start-date" class="text-sm font-medium mb-1">Desde:</label><input type="date" id="filter-start-date" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm w-full"></div><div><label for="filter-end-date" class="text-sm font-medium mb-1">Hasta:</label><input type="date" id="filter-end-date" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm w-full"></div><div><label for="filter-organo" class="text-sm font-medium mb-1">Órgano:</label><select id="filter-organo" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm w-full"><option value="todos">Todos</option>${ORGANOS.map(o => `<option value="${o}">${o}</option>`).join('')}</select></div><div class="relative" id="sector-filter-container"><label class="text-sm font-medium mb-1">Sector/Lugar:</label><button id="sector-filter-btn" type="button" class="inline-flex justify-between w-full rounded-md border border-gray-300 px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"><span id="sector-filter-text">Todos los sectores</span><i class="fas fa-chevron-down -mr-1 ml-2 h-5 w-5 my-auto"></i></button><div id="sector-filter-options" class="origin-top-right absolute right-0 mt-2 w-72 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 hidden z-10"><div class="py-1 max-h-60 overflow-y-auto">${SECTORES.map(sector => `<label class="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 cursor-pointer"><input type="checkbox" class="h-4 w-4 text-accent-600 border-gray-300 rounded" value="${sector}"><span class="text-sm text-gray-700">${sector}</span></label>`).join('')}</div></div></div><div><label for="filter-tipo-secuestro" class="text-sm font-medium mb-1">Hallazgo:</label><select id="filter-tipo-secuestro" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm w-full"><option value="todos">Todos</option><option value="CON RESPONSABLE">Con Responsable</option><option value="SIN RESPONSABLE">Sin Responsable</option></select></div><div id="container-tipo-responsable" class="hidden"><label for="filter-tipo-responsable" class="text-sm font-medium mb-1">Tipo Responsable:</label><select id="filter-tipo-responsable" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm w-full"><option value="todos">Todos</option><option value="interno">Interno</option><option value="visita">Visita</option><option value="agente">Agente</option></select></div><div class="lg:col-start-4"><button id="apply-filter-btn" class="w-full px-4 py-2 text-sm font-bold text-white bg-accent-600 rounded-lg hover:bg-accent-700">Filtrar</button></div></div></div><div class="bg-white rounded-xl shadow-lg border overflow-x-auto"><table class="w-full text-sm text-left"><thead class="text-xs text-gray-700 uppercase bg-gray-100"><tr><th class="px-4 py-3">Fecha</th><th class="px-4 py-3">Sector</th><th class="px-4 py-3">Órgano</th><th class="px-4 py-3">Detalle</th><th class="px-4 py-3">Tipo Act.</th><th class="px-4 py-3">N° Act.</th><th class="px-4 py-3">Autoridad</th><th class="px-4 py-3 text-center">Acciones</th></tr></thead><tbody id="summary-table-body"></tbody></table></div>`;
+             container.innerHTML = `
+                <h2 class="text-3xl font-bold text-inst-dark mb-6">Resumen de Secuestros</h2>
+                <div class="p-4 bg-white rounded-xl shadow-lg border mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                        <div class="flex flex-col"><label for="filter-start-date" class="text-sm font-medium mb-1">Desde:</label><input type="date" id="filter-start-date" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm shadow-sm w-full"></div>
+                        <div class="flex flex-col"><label for="filter-end-date" class="text-sm font-medium mb-1">Hasta:</label><input type="date" id="filter-end-date" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm shadow-sm w-full"></div>
+                        <div class="flex flex-col"><label for="filter-organo" class="text-sm font-medium mb-1">Órgano:</label><select id="filter-organo" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm shadow-sm w-full"><option value="todos">Todos</option>${ORGANOS.map(o => `<option value="${o}">${o}</option>`).join('')}</select></div>
+                        <div class="relative" id="sector-filter-container"><label class="text-sm font-medium mb-1">Sector/Lugar:</label><button id="sector-filter-btn" type="button" class="inline-flex justify-between w-full rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-500"><span id="sector-filter-text">Todos los sectores</span><i class="fas fa-chevron-down -mr-1 ml-2 h-5 w-5 my-auto"></i></button><div id="sector-filter-options" class="origin-top-right absolute right-0 mt-2 w-72 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none hidden z-10"><div class="py-1 max-h-60 overflow-y-auto">${SECTORES.map(sector => `<label class="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 cursor-pointer"><input type="checkbox" class="form-checkbox h-4 w-4 text-accent-600 border-gray-300 rounded focus:ring-accent-500" value="${sector}"><span class="text-sm text-gray-700">${sector}</span></label>`).join('')}</div></div></div>
+                        <div class="flex flex-col"><label for="filter-tipo-secuestro" class="text-sm font-medium mb-1">Hallazgo:</label><select id="filter-tipo-secuestro" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm shadow-sm w-full"><option value="todos">Todos</option><option value="CON RESPONSABLE">Con Responsable</option><option value="SIN RESPONSABLE">Sin Responsable</option></select></div>
+                        <div id="container-tipo-responsable" class="flex flex-col hidden"><label for="filter-tipo-responsable" class="text-sm font-medium mb-1">Tipo Responsable:</label><select id="filter-tipo-responsable" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm shadow-sm w-full"><option value="todos">Todos</option><option value="interno">Interno</option><option value="visita">Visita</option><option value="agente">Agente</option></select></div>
+                        <div class="lg:col-start-4"><button id="apply-filter-btn" class="w-full px-4 py-2 text-sm font-bold text-white bg-accent-600 rounded-lg hover:bg-accent-700">Filtrar</button></div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg border overflow-x-auto"><table class="w-full text-sm text-left text-gray-600"><thead class="text-xs text-gray-700 uppercase bg-gray-100"><tr><th scope="col" class="px-4 py-3">Fecha</th><th scope="col" class="px-4 py-3">Sector</th><th scope="col" class="px-4 py-3">Órgano</th><th scope="col" class="px-4 py-3">Detalle</th><th scope="col" class="px-4 py-3">Tipo Act.</th><th scope="col" class="px-4 py-3">N° Act.</th><th scope="col" class="px-4 py-3">Autoridad</th><th scope="col" class="px-4 py-3 text-center">Acciones</th></tr></thead><tbody id="summary-table-body"></tbody></table></div>`;
              loadAndDisplaySummaryData();
              setupSummaryFilters();
         }
 
         function loadAndDisplaySummaryData(filters = {}) {
-            let filteredData = allProcedures;
-            if (filters.startDate) { const start = new Date(filters.startDate).setHours(0,0,0,0); filteredData = filteredData.filter(p => p.datetime >= start); }
-            if (filters.endDate) { const end = new Date(filters.endDate).setHours(23,59,59,999); filteredData = filteredData.filter(p => p.datetime <= end); }
+            let filteredData = [...allProcedures];
+
+            if (filters.startDate) { const start = new Date(filters.startDate).setHours(0,0,0,0); filteredData = filteredData.filter(p => p.datetime.getTime() >= start); }
+            if (filters.endDate) { const end = new Date(filters.endDate).setHours(23,59,59,999); filteredData = filteredData.filter(p => p.datetime.getTime() <= end); }
             if (filters.sectors && filters.sectors.length > 0) { filteredData = filteredData.filter(p => filters.sectors.includes(p.sector)); }
             if (filters.organo && filters.organo !== 'todos') { filteredData = filteredData.filter(p => p.organo === filters.organo); }
             if (filters.tipoSecuestro && filters.tipoSecuestro !== 'todos') { filteredData = filteredData.filter(p => p.tipoSecuestro === filters.tipoSecuestro); }
-            if (filters.tipoResponsable && filters.tipoResponsable !== 'todos') { filteredData = filteredData.filter(p => p.responsable?.tipo === filters.tipoResponsable); }
+            if (filters.tipoResponsable && filters.tipoResponsable !== 'todos') { filteredData = filteredData.filter(p => p.responsable && p.responsable.tipo === filters.tipoResponsable); }
 
             const tableBody = document.getElementById('summary-table-body');
             if (!tableBody) return;
@@ -790,19 +806,17 @@
 
             tableBody.innerHTML = filteredData.map(proc => {
                 const canModify = currentUser.role !== 'Consultor';
-                const canDelete = currentUser.canDeleteProcedures;
-                const isPending = !proc.actuaciones;
+                const isPending = !proc.actuaciones || !proc.actuaciones.archivoCargado;
                 const date = proc.datetime.toLocaleDateString('es-AR');
-                const itemsSummary = proc.items.map(item => item.subtype).join(', ');
+                const itemsSummary = proc.items.map(item => `${item.subtype}`).join(', ');
                 return `
-                    <tr class="hover:bg-gray-50 border-b ${isPending ? 'text-orange-600' : 'text-gray-600'}">
-                        <td class="px-4 py-4">${date}</td><td class="px-4 py-4">${proc.sector}</td><td class="px-4 py-4">${proc.organo}</td>
-                        <td class="px-4 py-4 text-xs">${itemsSummary}</td><td class="px-4 py-4">${proc.actuaciones?.tipo || 'Pendiente'}</td>
-                        <td class="px-4 py-4">${proc.actuaciones?.numero || '-'}</td><td class="px-4 py-4">${proc.actuaciones?.autoridad || '-'}</td>
-                        <td class="px-4 py-4 text-center space-x-3">
-                            <button onclick="openDetailsModal('${proc.id}')" class="text-blue-600 hover:text-blue-800" title="Ver Detalles"><i class="fas fa-eye"></i></button>
-                            ${canModify ? `<button onclick="openActuacionesModal('${proc.id}')" class="text-accent-600 hover:text-accent-800" title="Cargar/Editar Actuaciones"><i class="fas fa-pencil-alt"></i></button>` : ''}
-                            ${canDelete ? `<button onclick="handleDeleteProcedure('${proc.id}')" class="text-red-600 hover:text-red-800" title="Eliminar Procedimiento"><i class="fas fa-trash-alt"></i></button>` : ''}
+                    <tr class="hover:bg-gray-50 border-b ${isPending ? 'text-red-600' : 'text-gray-600'}">
+                        <td class="px-4 py-4">${date}</td> <td class="px-4 py-4">${proc.sector}</td> <td class="px-4 py-4">${proc.organo}</td>
+                        <td class="px-4 py-4 text-xs">${itemsSummary}</td> <td class="px-4 py-4">${proc.actuaciones ? proc.actuaciones.tipo : 'Pendiente'}</td>
+                        <td class="px-4 py-4">${proc.actuaciones ? proc.actuaciones.numero : '-'}</td> <td class="px-4 py-4">${proc.actuaciones && proc.actuaciones.autoridad ? proc.actuaciones.autoridad : '-'}</td>
+                        <td class="px-4 py-4 text-center">
+                            <button onclick="openDetailsModal('${proc.id}')" class="text-blue-600 hover:text-blue-800 mr-3" title="Ver Detalles"><i class="fas fa-eye"></i></button>
+                            ${canModify ? `<button onclick="openActuacionesModal('${proc.id}')" class="text-accent-600 hover:text-accent-800" title="Cargar Actuaciones"><i class="fas fa-pencil-alt"></i></button>` : ''}
                         </td>
                     </tr>`;
             }).join('');
@@ -817,7 +831,7 @@
             const tipoResponsable = document.getElementById('filter-tipo-responsable').value;
             return { startDate, endDate, sectors: selectedSectors, organo, tipoSecuestro, tipoResponsable };
         }
-        
+
         function setupSummaryFilters() {
             const container = document.getElementById('sector-filter-container');
             const btn = document.getElementById('sector-filter-btn');
@@ -909,8 +923,30 @@
 
         // --- VISTA DE ADMINISTRACION DE USUARIOS ---
         async function renderAdminUsersView(container) {
-            const commonInputClasses = "w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-lg shadow-sm";
-            container.innerHTML = `<h2 class="text-3xl font-bold text-inst-dark mb-4">Administración de Usuarios</h2><div class="space-y-6"><div class="p-6 bg-white rounded-xl shadow-lg border"><h3 class="text-xl font-semibold text-accent-600 mb-4 border-b pb-3">Crear Nuevo Usuario</h3><form id="create-user-form" class="space-y-4"><div class="grid grid-cols-1 md:grid-cols-3 gap-4"><div><label for="new-user-dni" class="block text-sm font-medium text-gray-700">Usuario (DNI)</label><input type="text" id="new-user-dni" class="${commonInputClasses}" required></div><div><label for="new-user-name" class="block text-sm font-medium text-gray-700">Nombre Completo</label><input type="text" id="new-user-name" class="${commonInputClasses}" required></div><div><label for="new-user-password" class="block text-sm font-medium text-gray-700">Contraseña</label><input type="password" id="new-user-password" class="${commonInputClasses}" required></div></div><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label for="new-user-role" class="block text-sm font-medium text-gray-700">Rol</label><select id="new-user-role" class="${commonInputClasses}" required>${ROLES.map(r => `<option value="${r}">${r}</option>`).join('')}</select></div><div><label class="block text-sm font-medium text-gray-700">Alcances (Sectores)</label><div class="mt-1 p-2 border border-gray-300 rounded-lg bg-white max-h-40 overflow-y-auto grid grid-cols-2 gap-2">${SECTORES.map(s => `<label class="flex items-center space-x-2 text-sm"><input type="checkbox" name="scope" value="${s}" class="h-4 w-4 rounded border-gray-300 text-accent-600"><span>${s}</span></label>`).join('')}</div></div></div><div class="pt-2"><label class="flex items-center space-x-2 text-sm font-medium text-gray-700"><input type="checkbox" id="new-user-can-delete" class="h-4 w-4 rounded border-gray-300 text-accent-600"><span>Puede eliminar procedimientos</span></label></div><div class="text-right pt-2"><button type="submit" class="px-5 py-2 font-bold text-white bg-green-600 rounded-lg hover:bg-green-700"><i class="fas fa-plus-circle mr-2"></i>Crear Usuario</button></div></form></div><div class="p-6 bg-white rounded-xl shadow-lg border"><h3 class="text-xl font-semibold text-accent-600 mb-4 border-b pb-3">Usuarios Existentes</h3><div class="overflow-x-auto"><table class="w-full text-sm text-left"><thead class="text-xs text-gray-700 uppercase bg-gray-100"><tr><th class="px-6 py-3">Nombre</th><th class="px-6 py-3">Rol</th><th class="px-6 py-3">Estado</th><th class="px-6 py-3 text-center">Acciones</th></tr></thead><tbody id="users-table-body"></tbody></table></div></div></div>`;
+            const commonInputClasses = "w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-accent-500";
+            container.innerHTML = `
+                <h2 class="text-3xl font-bold text-inst-dark mb-4">Administración de Usuarios</h2>
+                <div class="space-y-6">
+                    <div class="p-6 bg-white rounded-xl shadow-lg border">
+                         <h3 class="text-xl font-semibold text-accent-600 mb-4 border-b pb-3">Crear Nuevo Usuario</h3>
+                         <form id="create-user-form" class="space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div><label for="new-user-dni" class="block text-sm font-medium text-gray-700">Usuario (DNI)</label><input type="text" id="new-user-dni" class="${commonInputClasses}" required></div>
+                                <div><label for="new-user-name" class="block text-sm font-medium text-gray-700">Nombre Completo</label><input type="text" id="new-user-name" class="${commonInputClasses}" required></div>
+                                <div><label for="new-user-password" class="block text-sm font-medium text-gray-700">Contraseña</label><input type="password" id="new-user-password" class="${commonInputClasses}" required></div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div><label for="new-user-role" class="block text-sm font-medium text-gray-700">Rol</label><select id="new-user-role" class="${commonInputClasses}" required><option value="">Seleccione...</option>${ROLES.map(r => `<option value="${r}">${r}</option>`).join('')}</select></div>
+                                <div><label class="block text-sm font-medium text-gray-700">Alcances (Sectores)</label><div id="new-user-scope" class="mt-1 p-2 border border-gray-300 rounded-lg bg-white max-h-40 overflow-y-auto grid grid-cols-2 gap-2">${SECTORES.map(s => `<label class="flex items-center space-x-2 text-sm"><input type="checkbox" name="scope" value="${s}" class="h-4 w-4 rounded border-gray-300 text-accent-600 focus:ring-accent-500"><span>${s}</span></label>`).join('')}</div></div>
+                            </div>
+                            <div class="text-right pt-2"><button type="submit" class="px-5 py-2 font-bold text-white bg-green-600 rounded-lg hover:bg-green-700"><i class="fas fa-plus-circle mr-2"></i>Crear Usuario</button></div>
+                         </form>
+                    </div>
+                    <div class="p-6 bg-white rounded-xl shadow-lg border">
+                        <h3 class="text-xl font-semibold text-accent-600 mb-4 border-b pb-3">Usuarios Existentes</h3>
+                        <div class="overflow-x-auto"><table class="w-full text-sm text-left text-gray-600"><thead class="text-xs text-gray-700 uppercase bg-gray-100"><tr><th scope="col" class="px-6 py-3">Usuario (DNI)</th><th scope="col" class="px-6 py-3">Nombre</th><th scope="col" class="px-6 py-3">Rol</th><th scope="col" class="px-6 py-3">Acciones</th></tr></thead><tbody id="users-table-body"></tbody></table></div>
+                    </div>
+                </div>`;
             await renderUsersTable();
             document.getElementById('create-user-form').addEventListener('submit', handleCreateUser);
         }
@@ -920,24 +956,19 @@
             tableBody.innerHTML = `<tr><td colspan="4" class="text-center p-4"><i class="fas fa-spinner fa-spin"></i> Cargando...</td></tr>`;
             try {
                 const querySnapshot = await getDocs(collection(db, "users"));
-                const usersHtml = querySnapshot.docs.map(doc => {
-                    const user = { id: doc.id, ...doc.data() };
-                    if (user.id === currentUser.id) return ''; // Admin no se puede editar a sí mismo
-                    const statusClass = user.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
-                    const toggleIcon = user.active ? 'fa-toggle-on text-green-600' : 'fa-toggle-off text-gray-400';
-                    const toggleTitle = user.active ? 'Desactivar' : 'Activar';
-                    return `<tr class="hover:bg-gray-50 border-b">
-                        <td class="px-6 py-4 font-medium text-gray-900">${user.name}<br><span class="text-xs text-gray-500">${user.dni}</span></td>
+                let usersHtml = '';
+                querySnapshot.forEach((doc) => {
+                    const user = doc.data();
+                    usersHtml += `<tr class="hover:bg-gray-50 border-b">
+                        <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">${user.dni}</td>
+                        <td class="px-6 py-4">${user.name}</td>
                         <td class="px-6 py-4">${user.role}</td>
-                        <td class="px-6 py-4"><span class="px-2 py-1 text-xs font-medium rounded-full ${statusClass}">${user.active ? 'Activo' : 'Inactivo'}</span></td>
-                        <td class="px-6 py-4 text-center space-x-4">
-                            <button onclick="openEditUserModal('${user.id}')" class="text-blue-600 hover:text-blue-800" title="Editar"><i class="fas fa-edit"></i></button>
-                            <button onclick="handleToggleUserStatus('${user.id}', ${user.active})" class="text-xl" title="${toggleTitle} Usuario"><i class="fas ${toggleIcon}"></i></button>
-                            <button onclick="handleResetPassword('${user.dni}')" class="text-yellow-600 hover:text-yellow-800" title="Blanquear Contraseña"><i class="fas fa-key"></i></button>
+                        <td class="px-6 py-4">
+                        ${user.role === 'Admin' ? '' : `<button onclick="handleResetPassword('${user.dni}')" class="text-yellow-600 hover:text-yellow-800" title="Blanquear Contraseña"><i class="fas fa-key"></i></button>`}
                         </td>
                     </tr>`;
-                }).join('');
-                tableBody.innerHTML = usersHtml || `<tr><td colspan="4" class="text-center p-4">No hay otros usuarios para mostrar.</td></tr>`;
+                });
+                tableBody.innerHTML = usersHtml || `<tr><td colspan="4" class="text-center p-4">No hay usuarios.</td></tr>`;
             } catch (error) {
                 console.error("Error fetching users:", error);
                 tableBody.innerHTML = `<tr><td colspan="4" class="text-center p-4 text-red-500">Error al cargar usuarios.</td></tr>`;
@@ -948,107 +979,57 @@
             e.preventDefault();
             const form = e.target;
             const dni = form.querySelector('#new-user-dni').value;
+            const name = form.querySelector('#new-user-name').value;
             const password = form.querySelector('#new-user-password').value;
+            const role = form.querySelector('#new-user-role').value;
+            const scope = Array.from(form.querySelectorAll('input[name="scope"]:checked')).map(cb => cb.value);
+
+            if (!dni || !name || !password || !role) { showMessage('Error', 'Complete todos los campos.'); return; }
+            if (scope.length === 0) { showMessage('Error', 'Seleccione al menos un sector.'); return; }
+            
             const email = `${dni}@trazabilidad.app`;
             try {
+                // Paso 1: Crear el usuario en Firebase Authentication
                 const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                 const user = userCredential.user;
-                const userData = {
-                    dni,
-                    name: form.querySelector('#new-user-name').value,
-                    role: form.querySelector('#new-user-role').value,
-                    scope: Array.from(form.querySelectorAll('input[name="scope"]:checked')).map(cb => cb.value),
-                    canDeleteProcedures: form.querySelector('#new-user-can-delete').checked,
-                    active: true
-                };
-                await setDoc(doc(db, "users", user.uid), userData);
-                showMessage('Éxito', `Usuario '${userData.name}' creado correctamente.`);
-                await renderUsersTable();
+
+                // Paso 2: Guardar los datos del rol en Firestore
+                await setDoc(doc(db, "users", user.uid), { dni, name, role, scope });
+                
+                showMessage('Éxito', `Usuario '${name}' creado correctamente.`);
+                await renderUsersTable(); // Recargar la tabla
                 form.reset();
-                // Re-authenticate admin
+                
+                // Importante: Volver a loguear al admin
                 const adminEmail = `${currentUser.dni}@trazabilidad.app`;
                 const adminPass = prompt("Para continuar, por favor reingrese su contraseña de administrador:");
-                if (adminPass) { await signInWithEmailAndPassword(auth, adminEmail, adminPass); } else { handleLogout(); }
+                if (adminPass) {
+                    await signInWithEmailAndPassword(auth, adminEmail, adminPass);
+                } else {
+                    handleLogout(); // Si no ingresa pass, desloguear
+                }
+
             } catch (error) {
                 console.error("Error creando usuario:", error);
-                if (error.code == 'auth/email-already-in-use') showMessage('Error', `El DNI '${dni}' ya existe.`);
-                else if (error.code == 'auth/weak-password') showMessage('Error', 'La contraseña debe tener al menos 6 caracteres.');
-                else showMessage('Error', 'No se pudo crear el usuario.');
-            }
-        }
-        
-        async function openEditUserModal(userId) {
-            try {
-                const userRef = doc(db, "users", userId);
-                const userDoc = await getDoc(userRef);
-                if (!userDoc.exists()) { showMessage("Error", "Usuario no encontrado."); return; }
-                const user = userDoc.data();
-                
-                document.getElementById('edit-user-id').value = userId;
-                document.getElementById('edit-user-dni').value = user.dni;
-                document.getElementById('edit-user-name').value = user.name;
-                
-                const roleSelect = document.getElementById('edit-user-role');
-                roleSelect.innerHTML = ROLES.map(r => `<option value="${r}" ${user.role === r ? 'selected' : ''}>${r}</option>`).join('');
-                
-                const scopeDiv = document.getElementById('edit-user-scope');
-                scopeDiv.innerHTML = SECTORES.map(s => `<label class="flex items-center space-x-2 text-sm"><input type="checkbox" name="edit-scope" value="${s}" class="h-4 w-4 rounded border-gray-300 text-accent-600" ${user.scope.includes(s) ? 'checked' : ''}><span>${s}</span></label>`).join('');
-                
-                document.getElementById('edit-user-can-delete').checked = user.canDeleteProcedures || false;
-
-                document.getElementById('edit-user-modal').classList.add('hidden');
-                document.getElementById('edit-user-modal').classList.add('flex');
-            } catch (error) {
-                console.error("Error abriendo modal de edición:", error);
-                showMessage("Error", "No se pudieron cargar los datos del usuario.");
-            }
-        }
-        
-        async function handleUpdateUser(e) {
-            e.preventDefault();
-            const userId = document.getElementById('edit-user-id').value;
-            const userRef = doc(db, "users", userId);
-            try {
-                const updatedData = {
-                    name: document.getElementById('edit-user-name').value,
-                    role: document.getElementById('edit-user-role').value,
-                    scope: Array.from(document.querySelectorAll('input[name="edit-scope"]:checked')).map(cb => cb.value),
-                    canDeleteProcedures: document.getElementById('edit-user-can-delete').checked
-                };
-                await updateDoc(userRef, updatedData);
-                showMessage("Éxito", "Usuario actualizado correctamente.");
-                document.getElementById('edit-user-modal').classList.add('hidden');
-                document.getElementById('edit-user-modal').classList.remove('flex');
-                renderUsersTable();
-            } catch (error) {
-                console.error("Error actualizando usuario:", error);
-                showMessage("Error", "No se pudo actualizar el usuario.");
-            }
-        }
-        
-        async function handleToggleUserStatus(userId, currentStatus) {
-            const action = currentStatus ? "desactivar" : "activar";
-            showConfirm(`Confirmar ${action}`, `¿Está seguro de que desea ${action} a este usuario?`, async () => {
-                try {
-                    await updateDoc(doc(db, "users", userId), { active: !currentStatus });
-                    showMessage("Éxito", `Usuario ${action}do correctamente.`);
-                    renderUsersTable();
-                } catch (error) {
-                    console.error(`Error al ${action} usuario:`, error);
-                    showMessage("Error", `No se pudo ${action} al usuario.`);
+                if (error.code == 'auth/email-already-in-use') {
+                    showMessage('Error', `El usuario (DNI) '${dni}' ya existe.`);
+                } else if (error.code == 'auth/weak-password') {
+                    showMessage('Error', 'La contraseña debe tener al menos 6 caracteres.');
+                } else {
+                    showMessage('Error', 'No se pudo crear el usuario.');
                 }
-            });
+            }
         }
 
         function handleResetPassword(dni) {
             const email = `${dni}@trazabilidad.app`;
             showConfirm(
-                'Blanquear Contraseña',
+                'Confirmar Blanqueo',
                 `Se enviará un correo para restablecer la contraseña a la dirección asociada con el DNI ${dni}. ¿Continuar?`,
                 async () => {
                     try {
-                        await sendPasswordResetEmail(auth, email); 
-                        showMessage('Correo Enviado', `Se ha enviado un correo para restablecer la contraseña a ${email}.`);
+                        await sendPasswordResetEmail(auth, email);
+                        showMessage('Correo Enviado', `Se ha enviado un correo para restablecer la contraseña a ${email}. Revise la bandeja de entrada.`);
                     } catch (error) {
                         console.error("Error reseteando pass:", error);
                         showMessage("Error", "No se pudo iniciar el proceso de reseteo. Verifique que el usuario exista.");
@@ -1057,6 +1038,8 @@
             );
         }
         
+        // --- MODALES Y DETALLES ---
+
         function openActuacionesModal(procId) {
             const proc = allProcedures.find(p => p.id === procId);
             if (!proc) return;
@@ -1072,37 +1055,38 @@
                      document.getElementById('autoridad-container').classList.remove('hidden');
                      document.getElementById('actuaciones-autoridad').value = proc.actuaciones.autoridad || '';
                 }
-                if (proc.actuaciones.fileName) {
+                if (proc.actuaciones.archivoCargado) {
                     document.getElementById('actuaciones-archivo-info').textContent = `Archivo actual: ${proc.actuaciones.fileName}. Seleccionar uno nuevo lo reemplazará.`;
                 }
             }
             document.getElementById('actuaciones-modal').classList.remove('hidden');
             document.getElementById('actuaciones-modal').classList.add('flex');
         }
-        
+
         function openDetailsModal(procId) {
             const proc = allProcedures.find(p => p.id === procId);
             if (!proc) return;
             const contentDiv = document.getElementById('details-content');
             
+            // Hecho
             let detailsHtml = `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Datos del Hecho</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"><div><strong class="text-gray-500 block">Fecha:</strong> <span class="text-gray-800">${proc.datetime.toLocaleDateString('es-AR')}</span></div><div><strong class="text-gray-500 block">Sector:</strong> <span class="text-gray-800">${proc.sector}</span></div><div><strong class="text-gray-500 block">Órgano Actuante:</strong> <span class="text-gray-800">${proc.organo}</span></div><div><strong class="text-gray-500 block">Registrado por:</strong> <span class="text-gray-800">${proc.createdByName}</span></div></div></div>`;
-            
+            // Responsable
             let responsableHtml = '';
             if (proc.tipoSecuestro === 'SIN RESPONSABLE') { responsableHtml = `<p>Hallazgo sin responsable.</p><p class="mt-1 text-gray-600 text-sm"><strong>Observaciones:</strong> ${proc.responsable.observaciones || 'Ninguna'}</p>`;
             } else { responsableHtml = Object.entries(proc.responsable).map(([key, value]) => { if (!value) return ''; return `<div><strong class="text-gray-500 block capitalize">${key.replace('resp-','').replace('-',' ')}:</strong> <span class="text-gray-800">${value}</span></div>`; }).join(''); }
             detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Responsable</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">${responsableHtml}</div></div>`;
-            
+            // Items
             let itemsHtml = proc.items.map(item => {
                  let itemDetails = Object.entries(item.details).map(([key, value]) => { const fieldConfig = ELEMENTOS_CONFIG[item.type][item.subtype].find(f => f.name === key); if (!value) return ''; return `<li class="text-xs"><strong class="font-medium text-gray-600">${fieldConfig.label}:</strong> ${value === true ? 'Sí' : value}</li>`; }).join('');
                  if(item.observaciones) { itemDetails += `<li class="text-xs"><strong class="font-medium text-gray-600">Obs:</strong> ${item.observaciones}</li>`; }
                  return `<div class="p-3 border rounded-md bg-white"><p class="font-bold text-gray-800">${item.subtype} <span class="text-gray-500 font-normal">(${item.type})</span></p><ul class="list-disc list-inside ml-2 mt-1 space-y-1">${itemDetails}</ul></div>`;
             }).join('');
             detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Elementos Secuestrados</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">${itemsHtml}</div></div>`;
-            
+            // Actuaciones
             let actuacionesHtml = '';
             if (proc.actuaciones) {
                  actuacionesHtml = `<div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"><div><strong class="text-gray-500 block">Tipo:</strong> <span class="text-gray-800">${proc.actuaciones.tipo}</span></div><div><strong class="text-gray-500 block">Número:</strong> <span class="text-gray-800">${proc.actuaciones.numero}</span></div>${proc.actuaciones.autoridad ? `<div><strong class="text-gray-500 block">Autoridad:</strong> <span class="text-gray-800">${proc.actuaciones.autoridad}</span></div>` : ''}</div>`;
-                 if (proc.actuaciones.fileURL) {
+                 if (proc.actuaciones.archivoCargado && proc.actuaciones.fileURL) {
                     actuacionesHtml += `<div class="mt-4 border-t pt-4"><p class="text-sm font-semibold text-gray-700 mb-2">Archivo Adjunto</p><a href="${proc.actuaciones.fileURL}" target="_blank" rel="noopener noreferrer" class="border-2 border-dashed rounded-lg p-4 text-center bg-white block hover:bg-gray-50"><i class="far fa-file-pdf fa-3x text-red-500 mb-2"></i><p class="font-semibold text-gray-800">${proc.actuaciones.fileName}</p><p class="text-xs text-blue-600 mt-1 underline">Ver Archivo</p></a></div>`;
                  }
             } else { actuacionesHtml = `<p class="text-sm text-gray-500">Aún no se han cargado actuaciones.</p>`; }
@@ -1116,12 +1100,11 @@
         function initApp() {
             document.getElementById('login-form').addEventListener('submit', handleLogin);
             document.getElementById('logout-btn').addEventListener('click', handleLogout);
-            document.getElementById('actuaciones-form').addEventListener('submit', handleSaveActuaciones);
-            document.getElementById('edit-user-form').addEventListener('submit', handleUpdateUser);
             document.getElementById('actuaciones-modal-cancel').addEventListener('click', () => { document.getElementById('actuaciones-modal').classList.add('hidden'); document.getElementById('actuaciones-modal').classList.remove('flex'); });
-            document.getElementById('edit-user-modal-cancel').addEventListener('click', () => { document.getElementById('edit-user-modal').classList.add('hidden'); document.getElementById('edit-user-modal').classList.remove('flex'); });
-            document.getElementById('actuaciones-tipo').addEventListener('change', (e) => document.getElementById('autoridad-container').classList.toggle('hidden', e.target.value !== 'SAC'));
-            ['details-modal-close', 'details-modal-close-btn'].forEach(id => { document.getElementById(id).addEventListener('click', () => { document.getElementById('procedure-details-modal').classList.add('hidden'); document.getElementById('procedure-details-modal').classList.remove('flex'); }); });
+            document.getElementById('actuaciones-tipo').addEventListener('change', (e) => { document.getElementById('autoridad-container').classList.toggle('hidden', e.target.value !== 'SAC'); });
+            document.getElementById('actuaciones-form').addEventListener('submit', handleSaveActuaciones);
+            const closeDetailsButtons = ['details-modal-close', 'details-modal-close-btn'];
+            closeDetailsButtons.forEach(id => { document.getElementById(id).addEventListener('click', () => { document.getElementById('procedure-details-modal').classList.add('hidden'); document.getElementById('procedure-details-modal').classList.remove('flex'); }); });
         }
         
         // Inicializar la aplicación
