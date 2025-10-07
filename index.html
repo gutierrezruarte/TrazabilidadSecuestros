@@ -505,7 +505,11 @@
             const q = query(collection(db, "app_log"), orderBy("timestamp", "desc"), limit(500)); // Limit to last 500 logs for performance
             logsUnsubscribe = onSnapshot(q, (querySnapshot) => {
                 allLogs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), timestamp: doc.data().timestamp.toDate() }));
-                if (document.getElementById('activity-log-table-body')) { loadAndDisplayActivityLog(getCurrentLogFilters()); }
+                if (document.getElementById('activity-log-table-body')) { 
+                    loadAndDisplayActivityLog(getCurrentLogFilters()); 
+                    // We need to setup filters again in case new users/actions appeared
+                    setupActivityLogFilters();
+                }
             }, (error) => { console.error("Error escuchando registro de actividad:", error); showMessage("Error de Conexión", "No se pudo obtener el registro de actividad en tiempo real."); });
         }
 
@@ -1349,7 +1353,10 @@
 
         function openDetailsModal(procId) {
             const proc = allProcedures.find(p => p.id === procId);
-            if (!proc) return;
+            if (!proc) {
+                showMessage("Error", "No se encontraron los detalles para el secuestro seleccionado.");
+                return;
+            }
             
             document.getElementById('details-modal-title').textContent = 'Detalles del Procedimiento';
             const contentDiv = document.getElementById('details-content');
@@ -1454,7 +1461,10 @@
 
         function openDenunciaDetailsModal(denunciaId) {
             const denuncia = allDenuncias.find(d => d.id === denunciaId);
-            if (!denuncia) return;
+            if (!denuncia) {
+                showMessage("Error", "No se encontraron los detalles para la denuncia seleccionada.");
+                return;
+            }
             
             document.getElementById('details-modal-title').textContent = 'Detalles de Otra Denuncia';
             const contentDiv = document.getElementById('details-content');
@@ -1580,6 +1590,24 @@
             
             setupActivityLogFilters();
             loadAndDisplayActivityLog(); // Carga inicial
+
+            // Add event listener for row clicks
+            const tableBody = document.getElementById('activity-log-table-body');
+            if(tableBody){
+                tableBody.addEventListener('click', (e) => {
+                    const row = e.target.closest('tr');
+                    if (!row || !row.dataset.id) return;
+
+                    const id = row.dataset.id;
+                    const type = row.dataset.actionType;
+
+                    if (type === 'secuestro') {
+                        openDetailsModal(id);
+                    } else if (type === 'denuncia') {
+                        openDenunciaDetailsModal(id);
+                    }
+                });
+            }
         }
 
         function setupActivityLogFilters() {
@@ -1587,8 +1615,10 @@
             const userSelect = document.getElementById('log-filter-user');
             const actionSelect = document.getElementById('log-filter-action');
 
-            const users = [...new Set(allLogs.map(log => log.userName))];
-            const actions = [...new Set(allLogs.map(log => log.action))];
+            if (!userSelect || !actionSelect) return;
+
+            const users = [...new Set(allLogs.map(log => log.userName))].sort();
+            const actions = [...new Set(allLogs.map(log => log.action))].sort();
 
             userSelect.innerHTML = '<option value="todos">Todos</option>' + users.map(user => `<option value="${user}">${user}</option>`).join('');
             actionSelect.innerHTML = '<option value="todos">Todas</option>' + actions.map(action => `<option value="${action}">${action}</option>`).join('');
@@ -1634,8 +1664,22 @@
             tableBody.innerHTML = filteredLogs.map(log => {
                 const date = log.timestamp.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
                 const detailsString = Object.entries(log.details).map(([key, value]) => `${key}: ${value}`).join('; ');
+
+                let rowAttributes = '';
+                let rowClasses = 'hover:bg-gray-50 border-b';
+                const secuestroId = log.details.procId;
+                const denunciaId = log.details.denunciaId;
+
+                if (secuestroId) {
+                    rowAttributes = `data-id="${secuestroId}" data-action-type="secuestro" title="Haga clic para ver detalles del secuestro"`;
+                    rowClasses += ' cursor-pointer';
+                } else if (denunciaId) {
+                    rowAttributes = `data-id="${denunciaId}" data-action-type="denuncia" title="Haga clic para ver detalles de la denuncia"`;
+                    rowClasses += ' cursor-pointer';
+                }
+
                 return `
-                    <tr class="hover:bg-gray-50 border-b">
+                    <tr class="${rowClasses}" ${rowAttributes}>
                         <td class="px-6 py-4 text-xs whitespace-nowrap">${date}</td>
                         <td class="px-6 py-4">${log.userName}</td>
                         <td class="px-6 py-4 font-medium text-gray-800">${log.action}</td>
