@@ -197,12 +197,34 @@
             </form>
         </div>
     </div>
+    
+    <!-- Modal para Archivo de Denuncia -->
+    <div id="denuncia-archivo-modal" class="fixed inset-0 z-50 items-center justify-center hidden p-4 modal-backdrop">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-lg w-full mx-auto border-t-4 border-blue-700">
+            <h3 class="text-xl font-semibold text-inst-dark mb-4">Adjuntar Archivo de Denuncia</h3>
+            <form id="denuncia-archivo-form">
+                <input type="hidden" id="denuncia-archivo-id">
+                <div>
+                    <label for="denuncia-archivo-input" class="block text-sm font-medium text-gray-700">Seleccionar Archivo PDF</label>
+                    <input type="file" id="denuncia-archivo-input" accept=".pdf" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" required>
+                    <p id="denuncia-archivo-info" class="text-xs text-gray-500 mt-1"></p>
+                </div>
+                <div class="mt-6 flex justify-end space-x-3">
+                     <button type="button" id="denuncia-archivo-modal-cancel" class="px-5 py-2 bg-gray-200 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-300">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700">
+                        <span id="denuncia-archivo-btn-text">Guardar Archivo</span>
+                        <i id="denuncia-archivo-spinner" class="fas fa-spinner fa-spin hidden"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Modal para ver detalles del procedimiento -->
     <div id="procedure-details-modal" class="fixed inset-0 z-50 items-center justify-center hidden p-4 modal-backdrop">
         <div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-auto border-t-4 border-accent-800 flex flex-col" style="max-height: 90vh;">
             <div class="p-5 border-b flex justify-between items-center">
-                 <h3 class="text-2xl font-semibold text-inst-dark">Detalles del Procedimiento</h3>
+                 <h3 id="details-modal-title" class="text-2xl font-semibold text-inst-dark">Detalles del Procedimiento</h3>
                  <button id="details-modal-close" class="text-gray-400 hover:text-gray-600">&times;</button>
             </div>
             <div class="p-6 overflow-y-auto space-y-6">
@@ -242,7 +264,9 @@
         // --- ESTADO DE LA APLICACION ---
         let currentUser = null;
         let allProcedures = [];
-        let proceduresUnsubscribe = null; // Para el listener de onSnapshot
+        let allDenuncias = [];
+        let proceduresUnsubscribe = null;
+        let denunciasUnsubscribe = null;
 
         // --- DATOS MAESTROS (Se mantienen localmente) ---
         const ROLES = [
@@ -272,6 +296,9 @@
         window.openDetailsModal = openDetailsModal;
         window.openActuacionesModal = openActuacionesModal;
         window.handleResetPassword = handleResetPassword;
+        window.openDenunciaDetailsModal = openDenunciaDetailsModal;
+        window.openDenunciaArchivoModal = openDenunciaArchivoModal;
+        window.openEditDenunciaModal = openEditDenunciaModal; // Placeholder for edit functionality
 
         // --- LÓGICA DE LA APLICACIÓN ---
         
@@ -366,12 +393,12 @@
         }
 
         async function handleLogout() {
-            if (proceduresUnsubscribe) {
-                proceduresUnsubscribe(); // Detener el listener de Firestore
-                proceduresUnsubscribe = null;
-            }
+            if (proceduresUnsubscribe) proceduresUnsubscribe();
+            if (denunciasUnsubscribe) denunciasUnsubscribe();
+            proceduresUnsubscribe = null;
+            denunciasUnsubscribe = null;
             await signOut(auth);
-            // onAuthStateChanged se encargará de mostrar la pantalla de login
+            // onAuthStateChanged will handle showing the login screen
         }
 
         function showLogin() {
@@ -389,6 +416,7 @@
             `;
             setupMenu();
             listenToProcedures();
+            listenToDenuncias();
             navigateTo('welcome');
         }
         
@@ -403,6 +431,8 @@
             const menuItems = [
                 { id: 'load-procedure', text: 'Cargar Nuevo Procedimiento', icon: 'fa-plus-circle', visible: canLoad },
                 { id: 'summary', text: 'Resumen de Secuestros', icon: 'fa-clipboard-list', visible: true },
+                { id: 'denuncias', text: 'Otras Denuncias', icon: 'fa-file-alt', visible: true },
+                { id: 'resumen-denuncias', text: 'Resumen Otras Denuncias', icon: 'fa-file-medical-alt', visible: true },
                 { id: 'quantitative', text: 'Cuantitativas', icon: 'fa-chart-pie', visible: true },
                 { id: 'incidents', text: 'Incidentes', icon: 'fa-exclamation-triangle', visible: true },
                 { id: 'admin-users', text: 'Administrar Usuarios', icon: 'fa-users-cog', visible: currentUser.role === 'Admin' }
@@ -435,6 +465,8 @@
                 case 'welcome': contentArea.innerHTML = welcomeView; break;
                 case 'load-procedure': renderLoadProcedureForm(contentArea); break;
                 case 'summary': renderSummaryView(contentArea); break;
+                case 'denuncias': renderDenunciasView(contentArea); break;
+                case 'resumen-denuncias': renderResumenDenunciasView(contentArea); break;
                 case 'quantitative': renderQuantitativeView(contentArea); break;
                 case 'incidents':
                     contentArea.innerHTML = `<h2 class="text-3xl font-bold text-inst-dark mb-4">Gestión de Incidentes</h2><div class="bg-white p-6 rounded-xl shadow-lg border"><p class="text-gray-600">Esta sección está en desarrollo.</p></div>`;
@@ -444,29 +476,22 @@
             }
         }
         
-        // --- LÓGICA DE PROCEDIMIENTOS ---
+        // --- LÓGICA DE DATOS (LISTENERS) ---
 
         function listenToProcedures() {
-            if (proceduresUnsubscribe) proceduresUnsubscribe(); // Detener listener anterior
+            if (proceduresUnsubscribe) proceduresUnsubscribe();
             
             const q = query(collection(db, "procedures"), orderBy("createdAt", "desc"));
             
             proceduresUnsubscribe = onSnapshot(q, (querySnapshot) => {
-                allProcedures = [];
-                querySnapshot.forEach((doc) => {
-                    const data = doc.data();
-                    allProcedures.push({
-                        id: doc.id,
-                        ...data,
-                        datetime: data.datetime.toDate(),
-                        createdAt: data.createdAt.toDate()
-                    });
-                });
-                
-                // Si la vista de resumen está activa, la refrescamos
+                allProcedures = querySnapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data(),
+                    datetime: doc.data().datetime.toDate(),
+                    createdAt: doc.data().createdAt.toDate()
+                }));
                 if (document.getElementById('summary-table-body')) {
-                    const filters = getCurrentSummaryFilters();
-                    loadAndDisplaySummaryData(filters);
+                    loadAndDisplaySummaryData(getCurrentSummaryFilters());
                 }
             }, (error) => {
                 console.error("Error escuchando procedimientos:", error);
@@ -474,6 +499,29 @@
             });
         }
         
+        function listenToDenuncias() {
+            if (denunciasUnsubscribe) denunciasUnsubscribe();
+            
+            const q = query(collection(db, "denuncias"), orderBy("createdAt", "desc"));
+            
+            denunciasUnsubscribe = onSnapshot(q, (querySnapshot) => {
+                allDenuncias = querySnapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data(),
+                    createdAt: doc.data().createdAt.toDate()
+                }));
+                if (document.getElementById('denuncias-summary-table-body')) {
+                    loadAndDisplayDenunciasData();
+                }
+            }, (error) => {
+                console.error("Error escuchando denuncias:", error);
+                showMessage("Error de Conexión", "No se pudo obtener la lista de denuncias en tiempo real.");
+            });
+        }
+
+        
+        // --- LÓGICA DE GUARDADO ---
+
         async function handleSaveProcedure(e) {
             e.preventDefault();
             if (currentUser.role === 'Consultor') {
@@ -483,16 +531,14 @@
 
             const form = e.target;
             const submitButton = form.querySelector('button[type="submit"]');
-            const originalButtonText = submitButton.innerHTML;
             submitButton.disabled = true;
             submitButton.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Guardando...`;
 
             const tempItems = JSON.parse(form.dataset.tempItems || '[]');
-
             if (tempItems.length === 0) {
                 showMessage('Error', 'Debe añadir al menos un elemento secuestrado.');
                 submitButton.disabled = false;
-                submitButton.innerHTML = originalButtonText;
+                submitButton.innerHTML = `<i class="fas fa-save mr-2"></i>Guardar Procedimiento`;
                 return;
             }
 
@@ -502,7 +548,7 @@
             if (tipoSecuestro === 'CON RESPONSABLE' && (!responsableData || !responsableData.tipo)) {
                 showMessage('Validación Fallida', 'Debe seleccionar un tipo de responsable.');
                 submitButton.disabled = false;
-                submitButton.innerHTML = originalButtonText;
+                 submitButton.innerHTML = `<i class="fas fa-save mr-2"></i>Guardar Procedimiento`;
                 return;
             }
 
@@ -510,8 +556,13 @@
             if (organo === 'otros') organo = form.querySelector('#proc-organo-otro').value.trim();
 
             const dateValue = form.querySelector('#proc-datetime').value;
-            const dateParts = dateValue.split('-');
-            const localDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+            if(!dateValue) {
+                 showMessage('Validación Fallida', 'Debe seleccionar una fecha para el hecho.');
+                 submitButton.disabled = false;
+                 submitButton.innerHTML = `<i class="fas fa-save mr-2"></i>Guardar Procedimiento`;
+                 return;
+            }
+            const localDate = new Date(dateValue + 'T00:00:00');
 
             const procedureData = {
                 datetime: Timestamp.fromDate(localDate),
@@ -534,7 +585,7 @@
                 console.error("Error guardando procedimiento:", error);
                 showMessage('Error', 'No se pudo guardar el procedimiento. Verifique su conexión.');
                 submitButton.disabled = false;
-                submitButton.innerHTML = originalButtonText;
+                submitButton.innerHTML = `<i class="fas fa-save mr-2"></i>Guardar Procedimiento`;
             }
         }
 
@@ -544,7 +595,7 @@
                 showMessage('Acceso Denegado', 'Su rol de "Consultor" no tiene permisos para modificar datos.');
                 return;
             }
-            toggleSpinner('actuaciones', true);
+            toggleSpinner('actuaciones-btn', true);
 
             const procId = document.getElementById('actuaciones-proc-id').value;
             const procRef = doc(db, "procedures", procId);
@@ -557,7 +608,7 @@
 
             if (!tipo || !numero) {
                 showMessage('Error', 'Debe seleccionar un tipo y completar el número/identificador.');
-                toggleSpinner('actuaciones', false);
+                toggleSpinner('actuaciones-btn', false);
                 return;
             }
             
@@ -575,7 +626,6 @@
                     await uploadBytes(storageRef, file);
                     actuacionesData.fileURL = await getDownloadURL(storageRef);
                     actuacionesData.fileName = file.name;
-                    actuacionesData.archivoCargado = true;
                 }
                 
                 await updateDoc(procRef, { actuaciones: actuacionesData });
@@ -586,12 +636,12 @@
             } catch (error) {
                 console.error("Error guardando actuaciones: ", error);
                 if (error.code === 'storage/unauthorized') {
-                    showMessage("Error de Permisos", "No se pudo subir el archivo. Verifique las reglas de seguridad de Firebase Storage en su proyecto. Se requiere permiso de escritura para usuarios autenticados.");
+                    showMessage("Error de Permisos", "No se pudo subir el archivo. Verifique las reglas de seguridad de Firebase Storage.");
                 } else {
-                    showMessage("Error", "No se pudieron guardar las actuaciones. Revise la consola para más detalles.");
+                    showMessage("Error", "No se pudieron guardar las actuaciones.");
                 }
             } finally {
-                toggleSpinner('actuaciones', false);
+                toggleSpinner('actuaciones-btn', false);
             }
         }
         
@@ -607,7 +657,7 @@
                         <h3 class="text-xl font-semibold text-accent-600 mb-4 border-b pb-3">1. Detalles del Hecho</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             <div><label class="block text-sm font-medium text-gray-700">Fecha</label><input type="date" id="proc-datetime" class="${commonInputClasses}" value="${new Date().toISOString().slice(0, 10)}" required></div>
-                            <div><label class="block text-sm font-medium text-gray-700">Sector / Lugar</label><select id="proc-sector" class="${commonInputClasses}" required>${currentUser.scope.map(s => `<option value="${s}">${s}</option>`).join('')}</select></div>
+                            <div><label class="block text-sm font-medium text-gray-700">Sector / Lugar</label><select id="proc-sector" class="${commonInputClasses}" required>${SECTORES.map(s => `<option value="${s}">${s}</option>`).join('')}</select></div>
                             <div><label class="block text-sm font-medium text-gray-700">Órgano que realiza</label><select id="proc-organo" class="${commonInputClasses}" required>${ORGANOS.map(o => `<option value="${o}">${o}</option>`).join('')}<option value="otros">Otros</option></select><input type="text" id="proc-organo-otro" class="hidden mt-2 ${commonInputClasses}" placeholder="Especifique otro órgano"></div>
                             <div><label class="block text-sm font-medium text-gray-700">Tipo de Secuestro</label><div class="mt-2 space-x-6"><label class="inline-flex items-center"><input type="radio" name="tipoSecuestro" value="CON RESPONSABLE" class="text-accent-600 focus:ring-accent-500"> <span class="ml-2">Con Responsable</span></label><label class="inline-flex items-center"><input type="radio" name="tipoSecuestro" value="SIN RESPONSABLE" class="text-accent-600 focus:ring-accent-500" checked> <span class="ml-2">Sin Responsable</span></label></div></div>
                         </div>
@@ -770,6 +820,185 @@
             return data;
         }
 
+        // --- VISTA DE OTRAS DENUNCIAS ---
+        function renderDenunciasView(container) {
+            const commonInputClasses = "w-full px-4 py-2 mt-1 bg-white border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-accent-500";
+            const tiposHecho = ['Daños', 'Integridad Sexual', 'Daño contra instalaciones', 'Con deceso', 'Otros'];
+
+            container.innerHTML = `
+                <h2 class="text-3xl font-bold text-inst-dark mb-6">Cargar Otra Denuncia</h2>
+                <form id="denuncia-form" class="space-y-8">
+                    <div class="p-6 bg-white rounded-xl shadow-lg border">
+                        <h3 class="text-xl font-semibold text-accent-600 mb-4 border-b pb-3">1. Detalles del Hecho</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label for="denuncia-sector" class="block text-sm font-medium text-gray-700">Sector / Lugar</label>
+                                <select id="denuncia-sector" class="${commonInputClasses}" required>${SECTORES.map(s => `<option value="${s}">${s}</option>`).join('')}</select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Tipo de Hecho</label>
+                                <div id="tipo-hecho-container" class="mt-2 grid grid-cols-2 gap-2 p-2 border rounded-lg bg-gray-50">
+                                    ${tiposHecho.map(tipo => `
+                                        <label class="flex items-center space-x-2 text-sm">
+                                            <input type="checkbox" name="tipoHecho" value="${tipo}" class="h-4 w-4 rounded border-gray-300 text-accent-600 focus:ring-accent-500">
+                                            <span>${tipo}</span>
+                                        </label>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+                        <div id="otros-detalles-container" class="mt-4 hidden">
+                             <label for="denuncia-otros-detalles" class="block text-sm font-medium text-gray-700">Detalles (Otros)</label>
+                             <textarea id="denuncia-otros-detalles" class="${commonInputClasses}" rows="2"></textarea>
+                        </div>
+                         <div class="mt-4"><label for="denuncia-descripcion" class="block text-sm font-medium text-gray-700">Descripción de los Hechos</label><textarea id="denuncia-descripcion" class="${commonInputClasses}" rows="4" placeholder="Describa detalladamente lo sucedido..." required></textarea></div>
+                    </div>
+
+                    <div class="p-6 bg-white rounded-xl shadow-lg border">
+                        <h3 class="text-xl font-semibold text-accent-600 mb-4 border-b pb-3 flex justify-between items-center">
+                            <span>2. Internos Involucrados</span>
+                            <button type="button" id="add-interno-btn" class="px-3 py-1 text-sm font-bold text-white bg-blue-500 rounded-lg hover:bg-blue-600"><i class="fas fa-plus mr-1"></i>Añadir Interno</button>
+                        </h3>
+                        <div id="internos-container" class="space-y-4"></div>
+                    </div>
+
+                    <div class="p-6 bg-white rounded-xl shadow-lg border">
+                         <h3 class="text-xl font-semibold text-accent-600 mb-4 border-b pb-3">3. Datos de Visita (Opcional)</h3>
+                         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                             <div><label for="visita-apellido" class="block text-sm font-medium text-gray-700">Apellido</label><input type="text" id="visita-apellido" class="${commonInputClasses}"></div>
+                             <div><label for="visita-nombre" class="block text-sm font-medium text-gray-700">Nombre</label><input type="text" id="visita-nombre" class="${commonInputClasses}"></div>
+                             <div><label for="visita-dni" class="block text-sm font-medium text-gray-700">DNI</label><input type="text" id="visita-dni" class="${commonInputClasses}"></div>
+                             <div class="md:col-span-3"><label for="visita-vinculo" class="block text-sm font-medium text-gray-700">Vínculo con Interno</label><input type="text" id="visita-vinculo" class="${commonInputClasses}" placeholder="Ej: Madre, Hermano, Amigo"></div>
+                             <div class="md:col-span-3"><label for="visita-observaciones" class="block text-sm font-medium text-gray-700">Observaciones</label><textarea id="visita-observaciones" class="${commonInputClasses}" rows="3"></textarea></div>
+                         </div>
+                    </div>
+
+                     <div class="text-right"><button type="submit" class="px-6 py-3 font-bold text-lg text-white bg-green-600 rounded-lg hover:bg-green-700"><i class="fas fa-save mr-2"></i>Guardar Denuncia</button></div>
+                </form>
+            `;
+            setupDenunciasFormListeners();
+        }
+
+        function setupDenunciasFormListeners() {
+            const form = document.getElementById('denuncia-form');
+            if(!form) return;
+
+            // Listener para 'Otros' en Tipo de Hecho
+            const otrosCheckbox = form.querySelector('input[name="tipoHecho"][value="Otros"]');
+            const otrosDetallesContainer = form.querySelector('#otros-detalles-container');
+            otrosCheckbox.addEventListener('change', (e) => {
+                otrosDetallesContainer.classList.toggle('hidden', !e.target.checked);
+            });
+
+            let internoCounter = 0;
+            const addInterno = () => {
+                internoCounter++;
+                const commonInputClasses = "w-full px-4 py-2 mt-1 bg-white border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-accent-500";
+                const container = document.getElementById('internos-container');
+                const internoDiv = document.createElement('div');
+                internoDiv.className = 'p-4 border rounded-lg bg-gray-50 relative';
+                internoDiv.id = `interno-group-${internoCounter}`;
+                internoDiv.innerHTML = `
+                    <button type="button" class="absolute top-2 right-2 text-red-500 hover:text-red-700 remove-interno-btn" data-target="interno-group-${internoCounter}"><i class="fas fa-times"></i></button>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div><label class="block text-xs font-medium text-gray-600">Apellido</label><input type="text" name="interno-apellido" class="${commonInputClasses}" required></div>
+                        <div><label class="block text-xs font-medium text-gray-600">Nombre</label><input type="text" name="interno-nombre" class="${commonInputClasses}" required></div>
+                        <div><label class="block text-xs font-medium text-gray-600">Legajo N°</label><input type="text" name="interno-legajo" class="${commonInputClasses}" required></div>
+                        <div><label class="block text-xs font-medium text-gray-600">Pabellón</label><input type="text" name="interno-pabellon" class="${commonInputClasses}" required></div>
+                    </div>
+                `;
+                container.appendChild(internoDiv);
+            };
+
+            document.getElementById('add-interno-btn').addEventListener('click', addInterno);
+            document.getElementById('internos-container').addEventListener('click', (e) => {
+                const button = e.target.closest('.remove-interno-btn');
+                if (button) {
+                    const targetId = button.dataset.target;
+                    document.getElementById(targetId)?.remove();
+                }
+            });
+
+            form.addEventListener('submit', handleSaveDenuncia);
+            addInterno(); // Add one by default
+        }
+
+        async function handleSaveDenuncia(e) {
+            e.preventDefault();
+             if (currentUser.role === 'Consultor') {
+                showMessage('Acceso Denegado', 'Su rol de "Consultor" no tiene permisos para cargar datos.');
+                return;
+            }
+
+            const form = e.target;
+            const submitButton = form.querySelector('button[type="submit"]');
+            submitButton.disabled = true;
+            submitButton.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>Guardando...`;
+            
+            const tiposHecho = Array.from(form.querySelectorAll('input[name="tipoHecho"]:checked')).map(cb => cb.value);
+
+            const internos = [];
+            const internoGroups = form.querySelectorAll('[id^="interno-group-"]');
+            
+            if (internoGroups.length === 0) {
+                 showMessage('Error', 'Debe añadir al menos un interno involucrado.');
+                submitButton.disabled = false;
+                submitButton.innerHTML = `<i class="fas fa-save mr-2"></i>Guardar Denuncia`;
+                return;
+            }
+
+            let isValid = true;
+            internoGroups.forEach(group => {
+                const interno = {
+                    apellido: group.querySelector('[name="interno-apellido"]').value,
+                    nombre: group.querySelector('[name="interno-nombre"]').value,
+                    legajo: group.querySelector('[name="interno-legajo"]').value,
+                    pabellon: group.querySelector('[name="interno-pabellon"]').value,
+                };
+                if (!interno.apellido || !interno.nombre || !interno.legajo || !interno.pabellon) isValid = false;
+                internos.push(interno);
+            });
+            
+            if(!isValid) {
+                showMessage('Error', 'Debe completar todos los datos de los internos.');
+                submitButton.disabled = false;
+                submitButton.innerHTML = `<i class="fas fa-save mr-2"></i>Guardar Denuncia`;
+                return;
+            }
+            
+            const visita = {
+                apellido: form.querySelector('#visita-apellido').value,
+                nombre: form.querySelector('#visita-nombre').value,
+                dni: form.querySelector('#visita-dni').value,
+                vinculo: form.querySelector('#visita-vinculo').value,
+                observaciones: form.querySelector('#visita-observaciones').value,
+            };
+
+            const denunciaData = {
+                sector: form.querySelector('#denuncia-sector').value,
+                tiposHecho,
+                otrosDetalles: tiposHecho.includes('Otros') ? form.querySelector('#denuncia-otros-detalles').value : '',
+                descripcion: form.querySelector('#denuncia-descripcion').value,
+                internos,
+                visita: (visita.apellido || visita.nombre) ? visita : null,
+                createdBy: currentUser.uid,
+                createdByName: currentUser.name,
+                createdAt: Timestamp.now(),
+            };
+
+            try {
+                await addDoc(collection(db, "denuncias"), denunciaData);
+                showMessage('Éxito', 'Denuncia guardada correctamente.');
+                navigateTo('denuncias');
+            } catch (error) {
+                console.error("Error guardando denuncia:", error);
+                showMessage('Error', 'No se pudo guardar la denuncia. Verifique su conexión.');
+            } finally {
+                submitButton.disabled = false;
+                submitButton.innerHTML = `<i class="fas fa-save mr-2"></i>Guardar Denuncia`;
+            }
+        }
+
         // --- VISTAS DE RESUMEN Y DATOS ---
         function renderSummaryView(container) {
              container.innerHTML = `
@@ -793,8 +1022,8 @@
         function loadAndDisplaySummaryData(filters = {}) {
             let filteredData = [...allProcedures];
 
-            if (filters.startDate) { const start = new Date(filters.startDate).setHours(0,0,0,0); filteredData = filteredData.filter(p => p.datetime.getTime() >= start); }
-            if (filters.endDate) { const end = new Date(filters.endDate).setHours(23,59,59,999); filteredData = filteredData.filter(p => p.datetime.getTime() <= end); }
+            if (filters.startDate) { const start = new Date(filters.startDate + 'T00:00:00'); filteredData = filteredData.filter(p => p.datetime >= start); }
+            if (filters.endDate) { const end = new Date(filters.endDate + 'T23:59:59'); filteredData = filteredData.filter(p => p.datetime <= end); }
             if (filters.sectors && filters.sectors.length > 0) { filteredData = filteredData.filter(p => filters.sectors.includes(p.sector)); }
             if (filters.organo && filters.organo !== 'todos') { filteredData = filteredData.filter(p => p.organo === filters.organo); }
             if (filters.tipoSecuestro && filters.tipoSecuestro !== 'todos') { filteredData = filteredData.filter(p => p.tipoSecuestro === filters.tipoSecuestro); }
@@ -806,7 +1035,7 @@
 
             tableBody.innerHTML = filteredData.map(proc => {
                 const canModify = currentUser.role !== 'Consultor';
-                const isPending = !proc.actuaciones || !proc.actuaciones.archivoCargado;
+                const isPending = !proc.actuaciones;
                 const date = proc.datetime.toLocaleDateString('es-AR');
                 const itemsSummary = proc.items.map(item => `${item.subtype}`).join(', ');
                 return `
@@ -887,11 +1116,12 @@
         
         function loadQuantitativeData(filters = {}) {
             let dataToProcess = [...allProcedures];
-            if (filters.startDate) { const start = new Date(filters.startDate).setHours(0,0,0,0); dataToProcess = dataToProcess.filter(p => p.datetime.getTime() >= start); }
-            if (filters.endDate) { const end = new Date(filters.endDate).setHours(23,59,59,999); dataToProcess = dataToProcess.filter(p => p.datetime.getTime() <= end); }
+            if (filters.startDate) { const start = new Date(filters.startDate + 'T00:00:00'); dataToProcess = dataToProcess.filter(p => p.datetime >= start); }
+            if (filters.endDate) { const end = new Date(filters.endDate + 'T23:59:59'); dataToProcess = dataToProcess.filter(p => p.datetime <= end); }
 
             const head = document.getElementById('quantitative-table-head');
             const body = document.getElementById('quantitative-table-body');
+            if (!head || !body) return;
             let headHtml = '<th scope="col" class="px-6 py-3">Elemento</th>';
             SECTORES.forEach(sector => { headHtml += `<th scope="col" class="px-2 py-3 text-center text-xs" title="${sector}">${sector.replace('C.C.N° ', 'C').replace('E.P.N° ', 'E')}</th>`; });
             headHtml += '<th scope="col" class="px-6 py-3 text-center font-bold bg-gray-200">Total</th>';
@@ -1055,7 +1285,7 @@
                      document.getElementById('autoridad-container').classList.remove('hidden');
                      document.getElementById('actuaciones-autoridad').value = proc.actuaciones.autoridad || '';
                 }
-                if (proc.actuaciones.archivoCargado) {
+                if (proc.actuaciones.fileName) {
                     document.getElementById('actuaciones-archivo-info').textContent = `Archivo actual: ${proc.actuaciones.fileName}. Seleccionar uno nuevo lo reemplazará.`;
                 }
             }
@@ -1066,27 +1296,25 @@
         function openDetailsModal(procId) {
             const proc = allProcedures.find(p => p.id === procId);
             if (!proc) return;
+            
+            document.getElementById('details-modal-title').textContent = 'Detalles del Procedimiento';
             const contentDiv = document.getElementById('details-content');
             
-            // Hecho
             let detailsHtml = `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Datos del Hecho</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"><div><strong class="text-gray-500 block">Fecha:</strong> <span class="text-gray-800">${proc.datetime.toLocaleDateString('es-AR')}</span></div><div><strong class="text-gray-500 block">Sector:</strong> <span class="text-gray-800">${proc.sector}</span></div><div><strong class="text-gray-500 block">Órgano Actuante:</strong> <span class="text-gray-800">${proc.organo}</span></div><div><strong class="text-gray-500 block">Registrado por:</strong> <span class="text-gray-800">${proc.createdByName}</span></div></div></div>`;
-            // Responsable
             let responsableHtml = '';
             if (proc.tipoSecuestro === 'SIN RESPONSABLE') { responsableHtml = `<p>Hallazgo sin responsable.</p><p class="mt-1 text-gray-600 text-sm"><strong>Observaciones:</strong> ${proc.responsable.observaciones || 'Ninguna'}</p>`;
-            } else { responsableHtml = Object.entries(proc.responsable).map(([key, value]) => { if (!value) return ''; return `<div><strong class="text-gray-500 block capitalize">${key.replace('resp-','').replace('-',' ')}:</strong> <span class="text-gray-800">${value}</span></div>`; }).join(''); }
-            detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Responsable</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">${responsableHtml}</div></div>`;
-            // Items
+            } else { responsableHtml = Object.entries(proc.responsable).map(([key, value]) => { if (!value || key === 'tipo') return ''; return `<div><strong class="text-gray-500 block capitalize">${key.replace('resp-','').replace('-',' ').replace('nombre', 'Nombres').replace('legajo', 'Legajo N°')}:</strong> <span class="text-gray-800">${value}</span></div>`; }).join(''); }
+            detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Responsable (${proc.responsable.tipo})</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">${responsableHtml}</div></div>`;
             let itemsHtml = proc.items.map(item => {
-                 let itemDetails = Object.entries(item.details).map(([key, value]) => { const fieldConfig = ELEMENTOS_CONFIG[item.type][item.subtype].find(f => f.name === key); if (!value) return ''; return `<li class="text-xs"><strong class="font-medium text-gray-600">${fieldConfig.label}:</strong> ${value === true ? 'Sí' : value}</li>`; }).join('');
+                 let itemDetails = Object.entries(item.details).map(([key, value]) => { const fieldConfig = ELEMENTOS_CONFIG[item.type][item.subtype].find(f => f.name === key); if (!value && value !== false) return ''; return `<li class="text-xs"><strong class="font-medium text-gray-600">${fieldConfig.label}:</strong> ${value === true ? 'Sí' : value}</li>`; }).join('');
                  if(item.observaciones) { itemDetails += `<li class="text-xs"><strong class="font-medium text-gray-600">Obs:</strong> ${item.observaciones}</li>`; }
                  return `<div class="p-3 border rounded-md bg-white"><p class="font-bold text-gray-800">${item.subtype} <span class="text-gray-500 font-normal">(${item.type})</span></p><ul class="list-disc list-inside ml-2 mt-1 space-y-1">${itemDetails}</ul></div>`;
             }).join('');
             detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Elementos Secuestrados</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">${itemsHtml}</div></div>`;
-            // Actuaciones
             let actuacionesHtml = '';
             if (proc.actuaciones) {
                  actuacionesHtml = `<div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"><div><strong class="text-gray-500 block">Tipo:</strong> <span class="text-gray-800">${proc.actuaciones.tipo}</span></div><div><strong class="text-gray-500 block">Número:</strong> <span class="text-gray-800">${proc.actuaciones.numero}</span></div>${proc.actuaciones.autoridad ? `<div><strong class="text-gray-500 block">Autoridad:</strong> <span class="text-gray-800">${proc.actuaciones.autoridad}</span></div>` : ''}</div>`;
-                 if (proc.actuaciones.archivoCargado && proc.actuaciones.fileURL) {
+                 if (proc.actuaciones.fileURL) {
                     actuacionesHtml += `<div class="mt-4 border-t pt-4"><p class="text-sm font-semibold text-gray-700 mb-2">Archivo Adjunto</p><a href="${proc.actuaciones.fileURL}" target="_blank" rel="noopener noreferrer" class="border-2 border-dashed rounded-lg p-4 text-center bg-white block hover:bg-gray-50"><i class="far fa-file-pdf fa-3x text-red-500 mb-2"></i><p class="font-semibold text-gray-800">${proc.actuaciones.fileName}</p><p class="text-xs text-blue-600 mt-1 underline">Ver Archivo</p></a></div>`;
                  }
             } else { actuacionesHtml = `<p class="text-sm text-gray-500">Aún no se han cargado actuaciones.</p>`; }
@@ -1100,13 +1328,172 @@
         function initApp() {
             document.getElementById('login-form').addEventListener('submit', handleLogin);
             document.getElementById('logout-btn').addEventListener('click', handleLogout);
+            
+            // Listeners for secuestros
             document.getElementById('actuaciones-modal-cancel').addEventListener('click', () => { document.getElementById('actuaciones-modal').classList.add('hidden'); document.getElementById('actuaciones-modal').classList.remove('flex'); });
             document.getElementById('actuaciones-tipo').addEventListener('change', (e) => { document.getElementById('autoridad-container').classList.toggle('hidden', e.target.value !== 'SAC'); });
             document.getElementById('actuaciones-form').addEventListener('submit', handleSaveActuaciones);
+            
+            // Listeners for denuncias
+            document.getElementById('denuncia-archivo-modal-cancel').addEventListener('click', () => { document.getElementById('denuncia-archivo-modal').classList.add('hidden'); document.getElementById('denuncia-archivo-modal').classList.remove('flex'); });
+            document.getElementById('denuncia-archivo-form').addEventListener('submit', handleSaveDenunciaArchivo);
+
+            // General listeners
             const closeDetailsButtons = ['details-modal-close', 'details-modal-close-btn'];
             closeDetailsButtons.forEach(id => { document.getElementById(id).addEventListener('click', () => { document.getElementById('procedure-details-modal').classList.add('hidden'); document.getElementById('procedure-details-modal').classList.remove('flex'); }); });
         }
         
+        // --- RESUMEN DE OTRAS DENUNCIAS ---
+        function renderResumenDenunciasView(container) {
+            container.innerHTML = `
+                <h2 class="text-3xl font-bold text-inst-dark mb-6">Resumen de Otras Denuncias</h2>
+                <div class="bg-white rounded-xl shadow-lg border overflow-x-auto">
+                    <table class="w-full text-sm text-left text-gray-600">
+                        <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                            <tr>
+                                <th scope="col" class="px-4 py-3">Fecha</th>
+                                <th scope="col" class="px-4 py-3">Sector</th>
+                                <th scope="col" class="px-4 py-3">Tipo de Hecho</th>
+                                <th scope="col" class="px-4 py-3">Internos</th>
+                                <th scope="col" class="px-4 py-3">Archivo</th>
+                                <th scope="col" class="px-4 py-3 text-center">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="denuncias-summary-table-body"></tbody>
+                    </table>
+                </div>`;
+            loadAndDisplayDenunciasData();
+        }
+
+        function loadAndDisplayDenunciasData() {
+            const tableBody = document.getElementById('denuncias-summary-table-body');
+            if (!tableBody) return;
+            if (allDenuncias.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="6" class="text-center p-8 text-gray-500">No hay denuncias registradas.</td></tr>`;
+                return;
+            }
+
+            tableBody.innerHTML = allDenuncias.map(d => {
+                const canModify = currentUser.role !== 'Consultor';
+                const date = d.createdAt.toLocaleDateString('es-AR');
+                const tipos = d.tiposHecho.join(', ');
+                const internos = d.internos.map(i => `${i.apellido}, ${i.nombre}`).join('; ');
+                const archivoStatus = d.denunciaFileURL 
+                    ? `<a href="${d.denunciaFileURL}" target="_blank" class="text-blue-600 hover:underline"><i class="fas fa-file-pdf mr-1"></i>Ver</a>` 
+                    : '<span class="text-red-500">Pendiente</span>';
+
+                return `
+                    <tr class="hover:bg-gray-50 border-b">
+                        <td class="px-4 py-4">${date}</td>
+                        <td class="px-4 py-4">${d.sector}</td>
+                        <td class="px-4 py-4 text-xs">${tipos}</td>
+                        <td class="px-4 py-4 text-xs">${internos}</td>
+                        <td class="px-4 py-4">${archivoStatus}</td>
+                        <td class="px-4 py-4 text-center space-x-3">
+                            <button onclick="openDenunciaDetailsModal('${d.id}')" class="text-blue-600 hover:text-blue-800" title="Ver Detalles"><i class="fas fa-eye"></i></button>
+                            ${canModify ? `<button onclick="openDenunciaArchivoModal('${d.id}')" class="text-green-600 hover:text-green-800" title="Cargar/Editar Archivo"><i class="fas fa-upload"></i></button>` : ''}
+                            ${canModify ? `<button onclick="openEditDenunciaModal('${d.id}')" class="text-yellow-600 hover:text-yellow-800" title="Editar Denuncia (Próximamente)" disabled><i class="fas fa-edit"></i></button>` : ''}
+                        </td>
+                    </tr>`;
+            }).join('');
+        }
+
+        function openDenunciaDetailsModal(denunciaId) {
+            const denuncia = allDenuncias.find(d => d.id === denunciaId);
+            if (!denuncia) return;
+            
+            document.getElementById('details-modal-title').textContent = 'Detalles de Otra Denuncia';
+            const contentDiv = document.getElementById('details-content');
+
+            let detailsHtml = `<div class="p-4 border rounded-lg bg-gray-50">
+                <h4 class="text-lg font-semibold text-blue-700 mb-3 border-b pb-2">Datos del Hecho</h4>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div><strong class="text-gray-500 block">Fecha de Carga:</strong> <span class="text-gray-800">${denuncia.createdAt.toLocaleString('es-AR')}</span></div>
+                    <div><strong class="text-gray-500 block">Sector:</strong> <span class="text-gray-800">${denuncia.sector}</span></div>
+                    <div><strong class="text-gray-500 block">Registrado por:</strong> <span class="text-gray-800">${denuncia.createdByName}</span></div>
+                    <div class="md:col-span-3"><strong class="text-gray-500 block">Tipo de Hecho:</strong> <span class="text-gray-800">${denuncia.tiposHecho.join(', ')}</span></div>
+                    ${denuncia.tiposHecho.includes('Otros') && denuncia.otrosDetalles ? `<div class="md:col-span-3"><strong class="text-gray-500 block">Detalles (Otros):</strong> <span class="text-gray-800">${denuncia.otrosDetalles}</span></div>` : ''}
+                    <div class="md:col-span-3 pt-2 border-t mt-2"><strong class="text-gray-500 block">Descripción:</strong> <p class="text-gray-800 whitespace-pre-wrap">${denuncia.descripcion}</p></div>
+                </div>
+            </div>`;
+
+            let internosHtml = denuncia.internos.map(i => `<div class="p-3 border rounded-md bg-white grid grid-cols-2 md:grid-cols-4 gap-2 text-xs"><div><strong>Apellido:</strong> ${i.apellido}</div><div><strong>Nombre:</strong> ${i.nombre}</div><div><strong>Legajo:</strong> ${i.legajo}</div><div><strong>Pabellón:</strong> ${i.pabellon}</div></div>`).join('');
+            detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-blue-700 mb-3 border-b pb-2">Internos Involucrados</h4><div class="space-y-2">${internosHtml}</div></div>`;
+
+            if (denuncia.visita) {
+                detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-blue-700 mb-3 border-b pb-2">Datos de Visita</h4>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div><strong class="text-gray-500 block">Apellido y Nombre:</strong><span class="text-gray-800">${denuncia.visita.apellido}, ${denuncia.visita.nombre}</span></div>
+                    <div><strong class="text-gray-500 block">DNI:</strong><span class="text-gray-800">${denuncia.visita.dni}</span></div>
+                    <div><strong class="text-gray-500 block">Vínculo:</strong><span class="text-gray-800">${denuncia.visita.vinculo}</span></div>
+                    <div class="md:col-span-3"><strong class="text-gray-500 block">Observaciones:</strong><p class="text-gray-800">${denuncia.visita.observaciones}</p></div>
+                </div></div>`;
+            }
+
+            if(denuncia.denunciaFileURL) {
+                detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-blue-700 mb-3 border-b pb-2">Archivo Adjunto</h4>
+                <a href="${denuncia.denunciaFileURL}" target="_blank" rel="noopener noreferrer" class="border-2 border-dashed rounded-lg p-4 text-center bg-white block hover:bg-gray-50"><i class="far fa-file-pdf fa-3x text-red-500 mb-2"></i><p class="font-semibold text-gray-800">${denuncia.denunciaFileName}</p><p class="text-xs text-blue-600 mt-1 underline">Ver Archivo</p></a></div>`;
+            }
+
+            contentDiv.innerHTML = detailsHtml;
+            document.getElementById('procedure-details-modal').classList.remove('hidden');
+            document.getElementById('procedure-details-modal').classList.add('flex');
+        }
+        
+        function openDenunciaArchivoModal(denunciaId) {
+            const denuncia = allDenuncias.find(d => d.id === denunciaId);
+            if (!denuncia) return;
+            const form = document.getElementById('denuncia-archivo-form');
+            form.reset();
+            document.getElementById('denuncia-archivo-id').value = denunciaId;
+            const infoP = document.getElementById('denuncia-archivo-info');
+            infoP.textContent = denuncia.denunciaFileName ? `Archivo actual: ${denuncia.denunciaFileName}. Seleccionar uno nuevo lo reemplazará.` : '';
+            
+            document.getElementById('denuncia-archivo-modal').classList.remove('hidden');
+            document.getElementById('denuncia-archivo-modal').classList.add('flex');
+        }
+
+        async function handleSaveDenunciaArchivo(e) {
+            e.preventDefault();
+            toggleSpinner('denuncia-archivo-btn', true);
+            const denunciaId = document.getElementById('denuncia-archivo-id').value;
+            const fileInput = document.getElementById('denuncia-archivo-input');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                showMessage('Error', 'Debe seleccionar un archivo PDF.');
+                toggleSpinner('denuncia-archivo-btn', false);
+                return;
+            }
+
+            try {
+                const storageRef = ref(storage, `denuncias/${denunciaId}/${file.name}`);
+                await uploadBytes(storageRef, file);
+                const fileURL = await getDownloadURL(storageRef);
+
+                const denunciaRef = doc(db, "denuncias", denunciaId);
+                await updateDoc(denunciaRef, {
+                    denunciaFileURL: fileURL,
+                    denunciaFileName: file.name
+                });
+
+                document.getElementById('denuncia-archivo-modal').classList.add('hidden');
+                document.getElementById('denuncia-archivo-modal').classList.remove('flex');
+                showMessage('Éxito', 'Archivo de denuncia guardado correctamente.');
+
+            } catch(error) {
+                console.error("Error guardando archivo de denuncia:", error);
+                showMessage("Error", "No se pudo guardar el archivo.");
+            } finally {
+                toggleSpinner('denuncia-archivo-btn', false);
+            }
+        }
+        
+        function openEditDenunciaModal(denunciaId) {
+            // This function is a placeholder for future implementation
+            showMessage('Función no disponible', 'La edición de denuncias se implementará en una futura actualización.');
+        }
+
         // Inicializar la aplicación
         initApp();
 
