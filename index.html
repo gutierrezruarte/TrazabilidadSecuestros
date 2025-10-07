@@ -241,8 +241,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getFirestore, collection, getDocs, doc, getDoc, setDoc, addDoc, onSnapshot, query, where, updateDoc, Timestamp, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+        import { getFirestore, collection, getDocs, doc, getDoc, setDoc, addDoc, onSnapshot, query, where, updateDoc, Timestamp, orderBy, deleteDoc, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -265,8 +265,10 @@
         let currentUser = null;
         let allProcedures = [];
         let allDenuncias = [];
+        let allLogs = [];
         let proceduresUnsubscribe = null;
         let denunciasUnsubscribe = null;
+        let logsUnsubscribe = null;
 
         // --- DATOS MAESTROS (Se mantienen localmente) ---
         const ROLES = [
@@ -298,7 +300,8 @@
         window.handleResetPassword = handleResetPassword;
         window.openDenunciaDetailsModal = openDenunciaDetailsModal;
         window.openDenunciaArchivoModal = openDenunciaArchivoModal;
-        window.openEditDenunciaModal = openEditDenunciaModal; // Placeholder for edit functionality
+        window.openEditDenunciaModal = openEditDenunciaModal;
+        window.confirmDeleteProcedure = confirmDeleteProcedure;
 
         // --- LÓGICA DE LA APLICACIÓN ---
         
@@ -395,8 +398,10 @@
         async function handleLogout() {
             if (proceduresUnsubscribe) proceduresUnsubscribe();
             if (denunciasUnsubscribe) denunciasUnsubscribe();
+            if (logsUnsubscribe) logsUnsubscribe();
             proceduresUnsubscribe = null;
             denunciasUnsubscribe = null;
+            logsUnsubscribe = null;
             await signOut(auth);
             // onAuthStateChanged will handle showing the login screen
         }
@@ -417,6 +422,7 @@
             setupMenu();
             listenToProcedures();
             listenToDenuncias();
+            listenToActivityLog();
             navigateTo('welcome');
         }
         
@@ -434,7 +440,7 @@
                 { id: 'denuncias', text: 'Otras Denuncias', icon: 'fa-file-alt', visible: true },
                 { id: 'resumen-denuncias', text: 'Resumen Otras Denuncias', icon: 'fa-file-medical-alt', visible: true },
                 { id: 'quantitative', text: 'Cuantitativas', icon: 'fa-chart-pie', visible: true },
-                { id: 'incidents', text: 'Incidentes', icon: 'fa-exclamation-triangle', visible: true },
+                { id: 'activity-log', text: 'Registro de Actividad', icon: 'fa-history', visible: true },
                 { id: 'admin-users', text: 'Administrar Usuarios', icon: 'fa-users-cog', visible: currentUser.role === 'Admin' }
             ];
 
@@ -468,9 +474,7 @@
                 case 'denuncias': renderDenunciasView(contentArea); break;
                 case 'resumen-denuncias': renderResumenDenunciasView(contentArea); break;
                 case 'quantitative': renderQuantitativeView(contentArea); break;
-                case 'incidents':
-                    contentArea.innerHTML = `<h2 class="text-3xl font-bold text-inst-dark mb-4">Gestión de Incidentes</h2><div class="bg-white p-6 rounded-xl shadow-lg border"><p class="text-gray-600">Esta sección está en desarrollo.</p></div>`;
-                    break;
+                case 'activity-log': renderActivityLogView(contentArea); break;
                 case 'admin-users': renderAdminUsersView(contentArea); break;
                 default: contentArea.innerHTML = welcomeView;
             }
@@ -480,47 +484,33 @@
 
         function listenToProcedures() {
             if (proceduresUnsubscribe) proceduresUnsubscribe();
-            
             const q = query(collection(db, "procedures"), orderBy("createdAt", "desc"));
-            
             proceduresUnsubscribe = onSnapshot(q, (querySnapshot) => {
-                allProcedures = querySnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    datetime: doc.data().datetime.toDate(),
-                    createdAt: doc.data().createdAt.toDate()
-                }));
-                if (document.getElementById('summary-table-body')) {
-                    loadAndDisplaySummaryData(getCurrentSummaryFilters());
-                }
-            }, (error) => {
-                console.error("Error escuchando procedimientos:", error);
-                showMessage("Error de Conexión", "No se pudo obtener la lista de procedimientos en tiempo real.");
-            });
+                allProcedures = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), datetime: doc.data().datetime.toDate(), createdAt: doc.data().createdAt.toDate() }));
+                if (document.getElementById('summary-table-body')) { loadAndDisplaySummaryData(getCurrentSummaryFilters()); }
+            }, (error) => { console.error("Error escuchando procedimientos:", error); showMessage("Error de Conexión", "No se pudo obtener la lista de procedimientos en tiempo real."); });
         }
         
         function listenToDenuncias() {
             if (denunciasUnsubscribe) denunciasUnsubscribe();
-            
             const q = query(collection(db, "denuncias"), orderBy("createdAt", "desc"));
-            
             denunciasUnsubscribe = onSnapshot(q, (querySnapshot) => {
-                allDenuncias = querySnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    createdAt: doc.data().createdAt.toDate()
-                }));
-                if (document.getElementById('denuncias-summary-table-body')) {
-                    loadAndDisplayDenunciasData();
-                }
-            }, (error) => {
-                console.error("Error escuchando denuncias:", error);
-                showMessage("Error de Conexión", "No se pudo obtener la lista de denuncias en tiempo real.");
-            });
+                allDenuncias = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), createdAt: doc.data().createdAt.toDate() }));
+                if (document.getElementById('denuncias-summary-table-body')) { loadAndDisplayDenunciasData(); }
+            }, (error) => { console.error("Error escuchando denuncias:", error); showMessage("Error de Conexión", "No se pudo obtener la lista de denuncias en tiempo real."); });
+        }
+
+        function listenToActivityLog() {
+            if (logsUnsubscribe) logsUnsubscribe();
+            const q = query(collection(db, "app_log"), orderBy("timestamp", "desc"), limit(500)); // Limit to last 500 logs for performance
+            logsUnsubscribe = onSnapshot(q, (querySnapshot) => {
+                allLogs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), timestamp: doc.data().timestamp.toDate() }));
+                if (document.getElementById('activity-log-table-body')) { loadAndDisplayActivityLog(getCurrentLogFilters()); }
+            }, (error) => { console.error("Error escuchando registro de actividad:", error); showMessage("Error de Conexión", "No se pudo obtener el registro de actividad en tiempo real."); });
         }
 
         
-        // --- LÓGICA DE GUARDADO ---
+        // --- LÓGICA DE GUARDADO Y ELIMINACION ---
 
         async function handleSaveProcedure(e) {
             e.preventDefault();
@@ -578,7 +568,8 @@
             };
             
             try {
-                await addDoc(collection(db, "procedures"), procedureData);
+                const docRef = await addDoc(collection(db, "procedures"), procedureData);
+                await logActivity('Creación de Secuestro', { procId: docRef.id, sector: procedureData.sector, items: tempItems.length });
                 showMessage('Éxito', 'Procedimiento guardado correctamente.');
                 navigateTo('load-procedure'); // Recarga el formulario
             } catch (error) {
@@ -629,6 +620,7 @@
                 }
                 
                 await updateDoc(procRef, { actuaciones: actuacionesData });
+                await logActivity('Actualización de Actuaciones', { procId: procId, tipo: tipo, numero: numero });
                 
                 document.getElementById('actuaciones-modal').classList.add('hidden');
                 document.getElementById('actuaciones-modal').classList.remove('flex');
@@ -642,6 +634,49 @@
                 }
             } finally {
                 toggleSpinner('actuaciones-btn', false);
+            }
+        }
+        
+        function confirmDeleteProcedure(procId) {
+            showConfirm(
+                'Confirmar Eliminación',
+                '¿Está seguro de que desea eliminar este secuestro de forma permanente? Esta acción no se puede deshacer y también eliminará los archivos asociados.',
+                () => handleDeleteProcedure(procId)
+            );
+        }
+
+        async function handleDeleteProcedure(procId) {
+            if (currentUser.role !== 'Admin') {
+                showMessage('Acceso Denegado', 'No tiene permisos para eliminar procedimientos.');
+                return;
+            }
+            
+            const procRef = doc(db, "procedures", procId);
+
+            try {
+                // First, get the document to check for a file to delete from Storage
+                const procDoc = await getDoc(procRef);
+                if (procDoc.exists()) {
+                    const procData = procDoc.data();
+                    if (procData.actuaciones && procData.actuaciones.fileURL) {
+                        try {
+                            const fileRef = ref(storage, procData.actuaciones.fileURL);
+                            await deleteObject(fileRef);
+                        } catch (storageError) {
+                            console.error("Could not delete file from Storage, but proceeding with Firestore deletion.", storageError);
+                            // Don't block DB deletion if file deletion fails. It might have been already deleted or permissions changed.
+                        }
+                    }
+                }
+
+                // Now, delete the document from Firestore
+                await deleteDoc(procRef);
+                await logActivity('Eliminación de Secuestro', { procId: procId });
+                showMessage('Éxito', 'El procedimiento ha sido eliminado correctamente.');
+                // The onSnapshot listener will automatically refresh the summary view.
+            } catch (error) {
+                console.error("Error eliminando procedimiento:", error);
+                showMessage('Error', 'No se pudo eliminar el procedimiento.');
             }
         }
         
@@ -987,7 +1022,8 @@
             };
 
             try {
-                await addDoc(collection(db, "denuncias"), denunciaData);
+                const docRef = await addDoc(collection(db, "denuncias"), denunciaData);
+                await logActivity('Creación de Otra Denuncia', { denunciaId: docRef.id, sector: denunciaData.sector, tipos: denunciaData.tiposHecho.join(', ') });
                 showMessage('Éxito', 'Denuncia guardada correctamente.');
                 navigateTo('denuncias');
             } catch (error) {
@@ -1046,6 +1082,7 @@
                         <td class="px-4 py-4 text-center">
                             <button onclick="openDetailsModal('${proc.id}')" class="text-blue-600 hover:text-blue-800 mr-3" title="Ver Detalles"><i class="fas fa-eye"></i></button>
                             ${canModify ? `<button onclick="openActuacionesModal('${proc.id}')" class="text-accent-600 hover:text-accent-800" title="Cargar Actuaciones"><i class="fas fa-pencil-alt"></i></button>` : ''}
+                            ${currentUser.role === 'Admin' ? `<button onclick="confirmDeleteProcedure('${proc.id}')" class="text-red-600 hover:text-red-800 ml-3" title="Eliminar Secuestro"><i class="fas fa-trash"></i></button>` : ''}
                         </td>
                     </tr>`;
             }).join('');
@@ -1204,7 +1241,22 @@
                 tableBody.innerHTML = `<tr><td colspan="4" class="text-center p-4 text-red-500">Error al cargar usuarios.</td></tr>`;
             }
         }
-
+        
+        async function logActivity(action, details = {}) {
+            try {
+                await addDoc(collection(db, "app_log"), {
+                    timestamp: Timestamp.now(),
+                    userId: currentUser.uid,
+                    userName: currentUser.name,
+                    action: action,
+                    details: details
+                });
+            } catch (error) {
+                console.error("Failed to log activity:", error);
+                // This is a non-critical error, so we just log it to the console and don't bother the user.
+            }
+        }
+        
         async function handleCreateUser(e) {
             e.preventDefault();
             const form = e.target;
@@ -1225,13 +1277,14 @@
 
                 // Paso 2: Guardar los datos del rol en Firestore
                 await setDoc(doc(db, "users", user.uid), { dni, name, role, scope });
+                await logActivity('Creación de Usuario', { createdUserName: name, createdUserDni: dni, role: role });
                 
                 showMessage('Éxito', `Usuario '${name}' creado correctamente.`);
                 await renderUsersTable(); // Recargar la tabla
                 form.reset();
                 
                 // Importante: Volver a loguear al admin
-                const adminEmail = `${currentUser.dni}@trazabilidad.app`;
+                const adminEmail = `${currentUser.email}`; // Use the current admin email
                 const adminPass = prompt("Para continuar, por favor reingrese su contraseña de administrador:");
                 if (adminPass) {
                     await signInWithEmailAndPassword(auth, adminEmail, adminPass);
@@ -1260,6 +1313,7 @@
                     try {
                         await sendPasswordResetEmail(auth, email);
                         showMessage('Correo Enviado', `Se ha enviado un correo para restablecer la contraseña a ${email}. Revise la bandeja de entrada.`);
+                        await logActivity('Blanqueo de Contraseña', { targetUserDni: dni });
                     } catch (error) {
                         console.error("Error reseteando pass:", error);
                         showMessage("Error", "No se pudo iniciar el proceso de reseteo. Verifique que el usuario exista.");
@@ -1493,6 +1547,103 @@
             // This function is a placeholder for future implementation
             showMessage('Función no disponible', 'La edición de denuncias se implementará en una futura actualización.');
         }
+
+        // --- VISTA DE REGISTRO DE ACTIVIDAD ---
+        function renderActivityLogView(container) {
+            container.innerHTML = `
+                <h2 class="text-3xl font-bold text-inst-dark mb-6">Registro de Actividad</h2>
+                <div class="p-4 bg-white rounded-xl shadow-lg border mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+                        <div class="flex flex-col"><label for="log-filter-start-date" class="text-sm font-medium mb-1">Desde:</label><input type="date" id="log-filter-start-date" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm shadow-sm w-full"></div>
+                        <div class="flex flex-col"><label for="log-filter-end-date" class="text-sm font-medium mb-1">Hasta:</label><input type="date" id="log-filter-end-date" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm shadow-sm w-full"></div>
+                        <div class="flex flex-col"><label for="log-filter-user" class="text-sm font-medium mb-1">Usuario:</label><select id="log-filter-user" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm shadow-sm w-full"><option value="todos">Todos</option></select></div>
+                        <div class="flex flex-col"><label for="log-filter-action" class="text-sm font-medium mb-1">Acción:</label><select id="log-filter-action" class="border-gray-300 rounded-lg py-1.5 px-2 text-sm shadow-sm w-full"><option value="todos">Todas</option></select></div>
+                        <div class="flex flex-col lg:col-span-2"><label for="log-filter-search" class="text-sm font-medium mb-1">Búsqueda:</label><input type="search" id="log-filter-search" placeholder="Buscar en detalles..." class="border-gray-300 rounded-lg py-1.5 px-2 text-sm shadow-sm w-full"></div>
+                        <div class="lg:col-start-5"><button id="log-apply-filter-btn" class="w-full px-4 py-2 text-sm font-bold text-white bg-accent-600 rounded-lg hover:bg-accent-700">Filtrar</button></div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg border overflow-x-auto">
+                    <div class="overflow-y-auto" style="max-height: 65vh;">
+                        <table class="w-full text-sm text-left text-gray-600">
+                            <thead class="text-xs text-gray-700 uppercase bg-gray-100 sticky top-0">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3">Fecha</th>
+                                    <th scope="col" class="px-6 py-3">Usuario</th>
+                                    <th scope="col" class="px-6 py-3">Acción</th>
+                                    <th scope="col" class="px-6 py-3">Detalles</th>
+                                </tr>
+                            </thead>
+                            <tbody id="activity-log-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>`;
+            
+            setupActivityLogFilters();
+            loadAndDisplayActivityLog(); // Carga inicial
+        }
+
+        function setupActivityLogFilters() {
+            // Populate user and action dropdowns from allLogs data
+            const userSelect = document.getElementById('log-filter-user');
+            const actionSelect = document.getElementById('log-filter-action');
+
+            const users = [...new Set(allLogs.map(log => log.userName))];
+            const actions = [...new Set(allLogs.map(log => log.action))];
+
+            userSelect.innerHTML = '<option value="todos">Todos</option>' + users.map(user => `<option value="${user}">${user}</option>`).join('');
+            actionSelect.innerHTML = '<option value="todos">Todas</option>' + actions.map(action => `<option value="${action}">${action}</option>`).join('');
+            
+            document.getElementById('log-apply-filter-btn').addEventListener('click', () => {
+                loadAndDisplayActivityLog(getCurrentLogFilters());
+            });
+        }
+
+        function getCurrentLogFilters() {
+            const startDate = document.getElementById('log-filter-start-date').value;
+            const endDate = document.getElementById('log-filter-end-date').value;
+            const user = document.getElementById('log-filter-user').value;
+            const action = document.getElementById('log-filter-action').value;
+            const search = document.getElementById('log-filter-search').value;
+            return { startDate, endDate, user, action, search };
+        }
+
+        function loadAndDisplayActivityLog(filters = {}) {
+            let filteredLogs = [...allLogs];
+            
+            // Apply filters
+            if (filters.startDate) { const start = new Date(filters.startDate + 'T00:00:00'); filteredLogs = filteredLogs.filter(l => l.timestamp >= start); }
+            if (filters.endDate) { const end = new Date(filters.endDate + 'T23:59:59'); filteredLogs = filteredLogs.filter(l => l.timestamp <= end); }
+            if (filters.user && filters.user !== 'todos') { filteredLogs = filteredLogs.filter(l => l.userName === filters.user); }
+            if (filters.action && filters.action !== 'todos') { filteredLogs = filteredLogs.filter(l => l.action === filters.action); }
+            if (filters.search) {
+                const searchTerm = filters.search.toLowerCase();
+                filteredLogs = filteredLogs.filter(l => 
+                    l.userName.toLowerCase().includes(searchTerm) ||
+                    l.action.toLowerCase().includes(searchTerm) ||
+                    JSON.stringify(l.details).toLowerCase().includes(searchTerm)
+                );
+            }
+
+            const tableBody = document.getElementById('activity-log-table-body');
+            if (!tableBody) return;
+            if (filteredLogs.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="4" class="text-center p-8 text-gray-500">No hay actividad que coincida con los filtros.</td></tr>`;
+                return;
+            }
+
+            tableBody.innerHTML = filteredLogs.map(log => {
+                const date = log.timestamp.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const detailsString = Object.entries(log.details).map(([key, value]) => `${key}: ${value}`).join('; ');
+                return `
+                    <tr class="hover:bg-gray-50 border-b">
+                        <td class="px-6 py-4 text-xs whitespace-nowrap">${date}</td>
+                        <td class="px-6 py-4">${log.userName}</td>
+                        <td class="px-6 py-4 font-medium text-gray-800">${log.action}</td>
+                        <td class="px-6 py-4 text-xs">${detailsString}</td>
+                    </tr>`;
+            }).join('');
+        }
+
 
         // Inicializar la aplicación
         initApp();
