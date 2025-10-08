@@ -624,7 +624,11 @@
                 }
                 
                 await updateDoc(procRef, { actuaciones: actuacionesData });
-                await logActivity('Actualización de Actuaciones', { procId: procId, tipo: tipo, numero: numero });
+                await logActivity('Actualización de Actuaciones', { 
+                    procId: procId, 
+                    before: currentProc.actuaciones || null, 
+                    after: actuacionesData 
+                });
                 
                 document.getElementById('actuaciones-modal').classList.add('hidden');
                 document.getElementById('actuaciones-modal').classList.remove('flex');
@@ -656,28 +660,32 @@
             }
             
             const procRef = doc(db, "procedures", procId);
+            let procDataToDelete = null;
 
             try {
-                // First, get the document to check for a file to delete from Storage
                 const procDoc = await getDoc(procRef);
                 if (procDoc.exists()) {
-                    const procData = procDoc.data();
-                    if (procData.actuaciones && procData.actuaciones.fileURL) {
-                        try {
-                            const fileRef = ref(storage, procData.actuaciones.fileURL);
-                            await deleteObject(fileRef);
-                        } catch (storageError) {
-                            console.error("Could not delete file from Storage, but proceeding with Firestore deletion.", storageError);
-                            // Don't block DB deletion if file deletion fails. It might have been already deleted or permissions changed.
-                        }
+                    procDataToDelete = procDoc.data();
+                }
+
+                if (procDataToDelete && procDataToDelete.actuaciones && procDataToDelete.actuaciones.fileURL) {
+                     try {
+                        const fileRef = ref(storage, procDataToDelete.actuaciones.fileURL);
+                        await deleteObject(fileRef);
+                    } catch (storageError) {
+                        console.error("No se pudo eliminar el archivo de Storage, pero se continuará con la eliminación de Firestore.", storageError);
                     }
                 }
 
-                // Now, delete the document from Firestore
                 await deleteDoc(procRef);
-                await logActivity('Eliminación de Secuestro', { procId: procId });
+
+                if (procDataToDelete) {
+                    await logActivity('Eliminación de Secuestro', { procId: procId, deletedData: procDataToDelete });
+                } else {
+                    await logActivity('Eliminación de Secuestro', { procId: procId, details: "Intento de eliminación de un documento no existente." });
+                }
+                
                 showMessage('Éxito', 'El procedimiento ha sido eliminado correctamente.');
-                // The onSnapshot listener will automatically refresh the summary view.
             } catch (error) {
                 console.error("Error eliminando procedimiento:", error);
                 showMessage('Error', 'No se pudo eliminar el procedimiento.');
@@ -1354,34 +1362,13 @@
         function openDetailsModal(procId) {
             const proc = allProcedures.find(p => p.id === procId);
             if (!proc) {
-                showMessage("Error", "No se encontraron los detalles para el secuestro seleccionado.");
+                showMessage("Error", "No se encontraron los detalles para el secuestro seleccionado. Puede que haya sido eliminado.");
                 return;
             }
             
             document.getElementById('details-modal-title').textContent = 'Detalles del Procedimiento';
             const contentDiv = document.getElementById('details-content');
-            
-            let detailsHtml = `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Datos del Hecho</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"><div><strong class="text-gray-500 block">Fecha:</strong> <span class="text-gray-800">${proc.datetime.toLocaleDateString('es-AR')}</span></div><div><strong class="text-gray-500 block">Sector:</strong> <span class="text-gray-800">${proc.sector}</span></div><div><strong class="text-gray-500 block">Órgano Actuante:</strong> <span class="text-gray-800">${proc.organo}</span></div><div><strong class="text-gray-500 block">Registrado por:</strong> <span class="text-gray-800">${proc.createdByName}</span></div></div></div>`;
-            let responsableHtml = '';
-            if (proc.tipoSecuestro === 'SIN RESPONSABLE') { responsableHtml = `<p>Hallazgo sin responsable.</p><p class="mt-1 text-gray-600 text-sm"><strong>Observaciones:</strong> ${proc.responsable.observaciones || 'Ninguna'}</p>`;
-            } else { responsableHtml = Object.entries(proc.responsable).map(([key, value]) => { if (!value || key === 'tipo') return ''; return `<div><strong class="text-gray-500 block capitalize">${key.replace('resp-','').replace('-',' ').replace('nombre', 'Nombres').replace('legajo', 'Legajo N°')}:</strong> <span class="text-gray-800">${value}</span></div>`; }).join(''); }
-            detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Responsable (${proc.responsable.tipo})</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">${responsableHtml}</div></div>`;
-            let itemsHtml = proc.items.map(item => {
-                 let itemDetails = Object.entries(item.details).map(([key, value]) => { const fieldConfig = ELEMENTOS_CONFIG[item.type][item.subtype].find(f => f.name === key); if (!value && value !== false) return ''; return `<li class="text-xs"><strong class="font-medium text-gray-600">${fieldConfig.label}:</strong> ${value === true ? 'Sí' : value}</li>`; }).join('');
-                 if(item.observaciones) { itemDetails += `<li class="text-xs"><strong class="font-medium text-gray-600">Obs:</strong> ${item.observaciones}</li>`; }
-                 return `<div class="p-3 border rounded-md bg-white"><p class="font-bold text-gray-800">${item.subtype} <span class="text-gray-500 font-normal">(${item.type})</span></p><ul class="list-disc list-inside ml-2 mt-1 space-y-1">${itemDetails}</ul></div>`;
-            }).join('');
-            detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Elementos Secuestrados</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">${itemsHtml}</div></div>`;
-            let actuacionesHtml = '';
-            if (proc.actuaciones) {
-                 actuacionesHtml = `<div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"><div><strong class="text-gray-500 block">Tipo:</strong> <span class="text-gray-800">${proc.actuaciones.tipo}</span></div><div><strong class="text-gray-500 block">Número:</strong> <span class="text-gray-800">${proc.actuaciones.numero}</span></div>${proc.actuaciones.autoridad ? `<div><strong class="text-gray-500 block">Autoridad:</strong> <span class="text-gray-800">${proc.actuaciones.autoridad}</span></div>` : ''}</div>`;
-                 if (proc.actuaciones.fileURL) {
-                    actuacionesHtml += `<div class="mt-4 border-t pt-4"><p class="text-sm font-semibold text-gray-700 mb-2">Archivo Adjunto</p><a href="${proc.actuaciones.fileURL}" target="_blank" rel="noopener noreferrer" class="border-2 border-dashed rounded-lg p-4 text-center bg-white block hover:bg-gray-50"><i class="far fa-file-pdf fa-3x text-red-500 mb-2"></i><p class="font-semibold text-gray-800">${proc.actuaciones.fileName}</p><p class="text-xs text-blue-600 mt-1 underline">Ver Archivo</p></a></div>`;
-                 }
-            } else { actuacionesHtml = `<p class="text-sm text-gray-500">Aún no se han cargado actuaciones.</p>`; }
-            detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Actuaciones</h4>${actuacionesHtml}</div>`;
-
-            contentDiv.innerHTML = detailsHtml;
+            contentDiv.innerHTML = generateProcedureDetailsHtml(proc);
             document.getElementById('procedure-details-modal').classList.remove('hidden');
             document.getElementById('procedure-details-modal').classList.add('flex');
         }
@@ -1589,39 +1576,45 @@
                 </div>`;
             
             setupActivityLogFilters();
-            loadAndDisplayActivityLog(); // Carga inicial
+            loadAndDisplayActivityLog();
 
-            // Add event listener for row clicks
             const tableBody = document.getElementById('activity-log-table-body');
             if(tableBody){
                 tableBody.addEventListener('click', (e) => {
                     const row = e.target.closest('tr');
-                    if (!row || !row.dataset.id) return;
+                    if (!row || !row.dataset.logId) return;
 
-                    const id = row.dataset.id;
-                    const type = row.dataset.actionType;
-
-                    if (type === 'secuestro') {
-                        openDetailsModal(id);
-                    } else if (type === 'denuncia') {
-                        openDenunciaDetailsModal(id);
+                    const logId = row.dataset.logId;
+                    const log = allLogs.find(l => l.id === logId);
+                    if (!log) {
+                        console.error("No se encontró la entrada de registro para el ID:", logId);
+                        return;
+                    }
+                    
+                    if (log.action === 'Eliminación de Secuestro' || log.action === 'Actualización de Actuaciones') {
+                        openHistoricDetailsModal(log);
+                    } else if (log.details.procId) {
+                        openDetailsModal(log.details.procId);
+                    } else if (log.details.denunciaId) {
+                        openDenunciaDetailsModal(log.details.denunciaId);
                     }
                 });
             }
         }
 
         function setupActivityLogFilters() {
-            // Populate user and action dropdowns from allLogs data
             const userSelect = document.getElementById('log-filter-user');
             const actionSelect = document.getElementById('log-filter-action');
-
             if (!userSelect || !actionSelect) return;
 
             const users = [...new Set(allLogs.map(log => log.userName))].sort();
             const actions = [...new Set(allLogs.map(log => log.action))].sort();
 
-            userSelect.innerHTML = '<option value="todos">Todos</option>' + users.map(user => `<option value="${user}">${user}</option>`).join('');
-            actionSelect.innerHTML = '<option value="todos">Todas</option>' + actions.map(action => `<option value="${action}">${action}</option>`).join('');
+            const currentSelectedUser = userSelect.value;
+            const currentSelectedAction = actionSelect.value;
+
+            userSelect.innerHTML = '<option value="todos">Todos</option>' + users.map(user => `<option value="${user}" ${user === currentSelectedUser ? 'selected' : ''}>${user}</option>`).join('');
+            actionSelect.innerHTML = '<option value="todos">Todas</option>' + actions.map(action => `<option value="${action}" ${action === currentSelectedAction ? 'selected' : ''}>${action}</option>`).join('');
             
             document.getElementById('log-apply-filter-btn').addEventListener('click', () => {
                 loadAndDisplayActivityLog(getCurrentLogFilters());
@@ -1640,7 +1633,6 @@
         function loadAndDisplayActivityLog(filters = {}) {
             let filteredLogs = [...allLogs];
             
-            // Apply filters
             if (filters.startDate) { const start = new Date(filters.startDate + 'T00:00:00'); filteredLogs = filteredLogs.filter(l => l.timestamp >= start); }
             if (filters.endDate) { const end = new Date(filters.endDate + 'T23:59:59'); filteredLogs = filteredLogs.filter(l => l.timestamp <= end); }
             if (filters.user && filters.user !== 'todos') { filteredLogs = filteredLogs.filter(l => l.userName === filters.user); }
@@ -1663,20 +1655,13 @@
 
             tableBody.innerHTML = filteredLogs.map(log => {
                 const date = log.timestamp.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-                const detailsString = Object.entries(log.details).map(([key, value]) => `${key}: ${value}`).join('; ');
+                const detailsString = Object.entries(log.details)
+                    .filter(([key]) => key !== 'deletedData' && key !== 'before' && key !== 'after') // Don't show complex objects directly
+                    .map(([key, value]) => `${key}: ${value}`).join('; ');
 
-                let rowAttributes = '';
-                let rowClasses = 'hover:bg-gray-50 border-b';
-                const secuestroId = log.details.procId;
-                const denunciaId = log.details.denunciaId;
-
-                if (secuestroId) {
-                    rowAttributes = `data-id="${secuestroId}" data-action-type="secuestro" title="Haga clic para ver detalles del secuestro"`;
-                    rowClasses += ' cursor-pointer';
-                } else if (denunciaId) {
-                    rowAttributes = `data-id="${denunciaId}" data-action-type="denuncia" title="Haga clic para ver detalles de la denuncia"`;
-                    rowClasses += ' cursor-pointer';
-                }
+                let isClickable = log.details.procId || log.details.denunciaId;
+                let rowClasses = `hover:bg-gray-50 border-b ${isClickable ? 'cursor-pointer' : ''}`;
+                let rowAttributes = isClickable ? `data-log-id="${log.id}" title="Haga clic para ver detalles"` : '';
 
                 return `
                     <tr class="${rowClasses}" ${rowAttributes}>
@@ -1688,6 +1673,116 @@
             }).join('');
         }
 
+        function generateProcedureDetailsHtml(proc, excludeSections = []) {
+            if (!proc) return '';
+
+            let detailsHtml = '';
+            
+            let procDate = proc.datetime;
+            if (procDate && procDate.seconds) { 
+                procDate = new Timestamp(procDate.seconds, procDate.nanoseconds).toDate();
+            }
+
+            if (!excludeSections.includes('hecho')) {
+                detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Datos del Hecho</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"><div><strong class="text-gray-500 block">Fecha:</strong> <span class="text-gray-800">${procDate.toLocaleDateString('es-AR')}</span></div><div><strong class="text-gray-500 block">Sector:</strong> <span class="text-gray-800">${proc.sector}</span></div><div><strong class="text-gray-500 block">Órgano Actuante:</strong> <span class="text-gray-800">${proc.organo}</span></div><div><strong class="text-gray-500 block">Registrado por:</strong> <span class="text-gray-800">${proc.createdByName}</span></div></div></div>`;
+            }
+
+            if (!excludeSections.includes('responsable') && proc.responsable) {
+                let responsableHtml = '';
+                if (proc.tipoSecuestro === 'SIN RESPONSABLE') { 
+                    responsableHtml = `<p>Hallazgo sin responsable.</p><p class="mt-1 text-gray-600 text-sm"><strong>Observaciones:</strong> ${proc.responsable.observaciones || 'Ninguna'}</p>`;
+                } else { 
+                    responsableHtml = Object.entries(proc.responsable).map(([key, value]) => { 
+                        if (!value || key === 'tipo') return ''; 
+                        return `<div><strong class="text-gray-500 block capitalize">${key.replace('resp-','').replace(/-/g,' ').replace('nombre', 'Nombres').replace('legajo', 'Legajo N°')}:</strong> <span class="text-gray-800">${value}</span></div>`; 
+                    }).join(''); 
+                }
+                detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Responsable (${proc.responsable.tipo})</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">${responsableHtml}</div></div>`;
+            }
+            
+            if (!excludeSections.includes('items')) {
+                let itemsHtml = (proc.items || []).map(item => {
+                    let itemDetails = Object.entries(item.details).map(([key, value]) => { 
+                        const fieldConfig = ELEMENTOS_CONFIG[item.type] && ELEMENTOS_CONFIG[item.type][item.subtype] ? ELEMENTOS_CONFIG[item.type][item.subtype].find(f => f.name === key) : null;
+                        if (!value && value !== false) return ''; 
+                        return `<li class="text-xs"><strong class="font-medium text-gray-600">${fieldConfig ? fieldConfig.label : key}:</strong> ${value === true ? 'Sí' : value}</li>`; 
+                    }).join('');
+                    if(item.observaciones) { itemDetails += `<li class="text-xs"><strong class="font-medium text-gray-600">Obs:</strong> ${item.observaciones}</li>`; }
+                    return `<div class="p-3 border rounded-md bg-white"><p class="font-bold text-gray-800">${item.subtype} <span class="text-gray-500 font-normal">(${item.type})</span></p><ul class="list-disc list-inside ml-2 mt-1 space-y-1">${itemDetails}</ul></div>`;
+                }).join('');
+                detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Elementos Secuestrados</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">${itemsHtml}</div></div>`;
+            }
+
+            if (!excludeSections.includes('actuaciones')) {
+                let actuacionesHtml = '';
+                if (proc.actuaciones) {
+                    actuacionesHtml = `<div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"><div><strong class="text-gray-500 block">Tipo:</strong> <span class="text-gray-800">${proc.actuaciones.tipo}</span></div><div><strong class="text-gray-500 block">Número:</strong> <span class="text-gray-800">${proc.actuaciones.numero}</span></div>${proc.actuaciones.autoridad ? `<div><strong class="text-gray-500 block">Autoridad:</strong> <span class="text-gray-800">${proc.actuaciones.autoridad}</span></div>` : ''}</div>`;
+                    if (proc.actuaciones.fileURL) {
+                        actuacionesHtml += `<div class="mt-4 border-t pt-4"><p class="text-sm font-semibold text-gray-700 mb-2">Archivo Adjunto</p><a href="${proc.actuaciones.fileURL}" target="_blank" rel="noopener noreferrer" class="border-2 border-dashed rounded-lg p-4 text-center bg-white block hover:bg-gray-50"><i class="far fa-file-pdf fa-3x text-red-500 mb-2"></i><p class="font-semibold text-gray-800">${proc.actuaciones.fileName}</p><p class="text-xs text-blue-600 mt-1 underline">Ver Archivo</p></a></div>`;
+                    }
+                } else { 
+                    actuacionesHtml = `<p class="text-sm text-gray-500">Aún no se han cargado actuaciones.</p>`; 
+                }
+                detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Actuaciones</h4>${actuacionesHtml}</div>`;
+            }
+            
+            return detailsHtml;
+        }
+
+        function openHistoricDetailsModal(log) {
+            const contentDiv = document.getElementById('details-content');
+            let detailsHtml = '';
+
+            if (log.action === 'Eliminación de Secuestro' && log.details.deletedData) {
+                document.getElementById('details-modal-title').textContent = 'Detalles de Secuestro Eliminado';
+                const procData = log.details.deletedData;
+                detailsHtml = generateProcedureDetailsHtml(procData);
+                detailsHtml = `<div class="p-4 mb-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-r-lg"><h4 class="font-bold">Registro Histórico</h4><p>Estos son los detalles del secuestro tal como existían antes de ser eliminado el ${log.timestamp.toLocaleString('es-AR')}.</p></div>` + detailsHtml;
+            
+            } else if (log.action === 'Actualización de Actuaciones') {
+                document.getElementById('details-modal-title').textContent = 'Historial de Cambios: Actuaciones';
+                const before = log.details.before;
+                const after = log.details.after;
+                
+                const renderActuacion = (act, title) => {
+                    if (!act) return `<div class="p-3 border rounded-md bg-white"><p class="font-bold text-gray-800">${title}</p><p class="text-sm text-gray-500 mt-2">Sin datos.</p></div>`;
+                    return `<div class="p-3 border rounded-md bg-white">
+                        <p class="font-bold text-gray-800">${title}</p>
+                        <ul class="list-disc list-inside ml-2 mt-2 space-y-1 text-sm">
+                            <li><strong>Tipo:</strong> ${act.tipo || '-'}</li>
+                            <li><strong>Número:</strong> ${act.numero || '-'}</li>
+                            <li><strong>Autoridad:</strong> ${act.autoridad || '-'}</li>
+                            <li><strong>Archivo:</strong> ${act.fileName || 'Ninguno'}</li>
+                        </ul>
+                    </div>`;
+                };
+                
+                detailsHtml = `<div class="p-4 mb-4 bg-yellow-50 border-l-4 border-yellow-500 text-yellow-800 rounded-r-lg"><h4 class="font-bold">Registro de Edición</h4><p>Cambio registrado por ${log.userName} el ${log.timestamp.toLocaleString('es-AR')}.</p></div>
+                <div class="p-4 border rounded-lg bg-gray-50">
+                    <h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Comparación de Actuaciones</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                        ${renderActuacion(before, 'Estado Anterior')}
+                        ${renderActuacion(after, 'Estado Nuevo')}
+                    </div>
+                </div>`;
+                
+                const proc = allProcedures.find(p => p.id === log.details.procId);
+                if (proc) {
+                    detailsHtml += generateProcedureDetailsHtml(proc, ['actuaciones']); 
+                } else {
+                    detailsHtml += `<p class="mt-4 text-sm text-gray-500">El secuestro original (ID: ${log.details.procId}) podría haber sido eliminado.</p>`;
+                }
+            } else {
+                contentDiv.innerHTML = `<p class="p-6">No hay detalles históricos para mostrar para esta acción.</p>`;
+                document.getElementById('procedure-details-modal').classList.add('hidden');
+                document.getElementById('procedure-details-modal').classList.remove('flex');
+                return;
+            }
+
+            contentDiv.innerHTML = detailsHtml;
+            document.getElementById('procedure-details-modal').classList.remove('hidden');
+            document.getElementById('procedure-details-modal').classList.add('flex');
+        }
 
         // Inicializar la aplicación
         initApp();
