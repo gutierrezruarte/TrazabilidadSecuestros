@@ -624,11 +624,7 @@
                 }
                 
                 await updateDoc(procRef, { actuaciones: actuacionesData });
-                await logActivity('Actualización de Actuaciones', { 
-                    procId: procId, 
-                    before: currentProc.actuaciones || null, 
-                    after: actuacionesData 
-                });
+                await logActivity('Actualización de Actuaciones', { procId: procId, tipo: tipo, numero: numero });
                 
                 document.getElementById('actuaciones-modal').classList.add('hidden');
                 document.getElementById('actuaciones-modal').classList.remove('flex');
@@ -660,32 +656,28 @@
             }
             
             const procRef = doc(db, "procedures", procId);
-            let procDataToDelete = null;
 
             try {
+                // First, get the document to check for a file to delete from Storage
                 const procDoc = await getDoc(procRef);
                 if (procDoc.exists()) {
-                    procDataToDelete = procDoc.data();
-                }
-
-                if (procDataToDelete && procDataToDelete.actuaciones && procDataToDelete.actuaciones.fileURL) {
-                     try {
-                        const fileRef = ref(storage, procDataToDelete.actuaciones.fileURL);
-                        await deleteObject(fileRef);
-                    } catch (storageError) {
-                        console.error("No se pudo eliminar el archivo de Storage, pero se continuará con la eliminación de Firestore.", storageError);
+                    const procData = procDoc.data();
+                    if (procData.actuaciones && procData.actuaciones.fileURL) {
+                        try {
+                            const fileRef = ref(storage, procData.actuaciones.fileURL);
+                            await deleteObject(fileRef);
+                        } catch (storageError) {
+                            console.error("Could not delete file from Storage, but proceeding with Firestore deletion.", storageError);
+                            // Don't block DB deletion if file deletion fails. It might have been already deleted or permissions changed.
+                        }
                     }
                 }
 
+                // Now, delete the document from Firestore
                 await deleteDoc(procRef);
-
-                if (procDataToDelete) {
-                    await logActivity('Eliminación de Secuestro', { procId: procId, deletedData: procDataToDelete });
-                } else {
-                    await logActivity('Eliminación de Secuestro', { procId: procId, details: "Intento de eliminación de un documento no existente." });
-                }
-                
+                await logActivity('Eliminación de Secuestro', { procId: procId });
                 showMessage('Éxito', 'El procedimiento ha sido eliminado correctamente.');
+                // The onSnapshot listener will automatically refresh the summary view.
             } catch (error) {
                 console.error("Error eliminando procedimiento:", error);
                 showMessage('Error', 'No se pudo eliminar el procedimiento.');
@@ -720,7 +712,15 @@
                                 <div><label class="block text-sm font-medium text-gray-700">Observaciones del Elemento</label><textarea id="item-observaciones" class="${commonInputClasses}" rows="3"></textarea></div>
                                 <button type="button" id="add-item-btn" class="px-4 py-2 font-bold text-white bg-accent-600 rounded-lg hover:bg-accent-700"><i class="fas fa-plus mr-2"></i>Añadir Elemento</button>
                             </div>
-                            <div class="h-full"><h4 class="font-semibold text-gray-700 mb-2">Síntesis en Tiempo Real</h4><div id="live-synthesis" class="p-4 bg-gray-50 rounded-lg h-80 overflow-y-auto text-sm text-gray-600 border">Aún no se han añadido elementos a este procedimiento.</div></div>
+                            <div class="h-full">
+                                <h4 class="font-semibold text-gray-700 mb-2 flex justify-between items-center">
+                                    <span>Síntesis en Tiempo Real</span>
+                                    <button type="button" id="copy-synthesis-btn" title="Copiar Síntesis" class="text-gray-500 hover:text-accent-600 focus:outline-none">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </h4>
+                                <div id="live-synthesis" class="p-4 bg-gray-50 rounded-lg h-80 overflow-y-auto text-sm text-gray-600 border">Aún no se han añadido elementos a este procedimiento.</div>
+                            </div>
                         </div>
                     </div>
                     <div class="text-right"><button type="submit" class="px-6 py-3 font-bold text-lg text-white bg-green-600 rounded-lg hover:bg-green-700"><i class="fas fa-save mr-2"></i>Guardar Procedimiento</button></div>
@@ -733,14 +733,24 @@
             const form = document.getElementById('procedure-form');
             if (!form) return;
 
-            const commonInputClasses = "w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-lg";
+            const triggerSynthesisUpdate = () => {
+                const currentItems = JSON.parse(form.dataset.tempItems || '[]');
+                updateLiveSynthesis(currentItems);
+            };
+
+            // Use event delegation on the form for real-time updates from inputs and selects
+            form.addEventListener('input', triggerSynthesisUpdate);
+            form.addEventListener('change', triggerSynthesisUpdate);
             
+            // Specific logic for elements that change the form structure
             form.querySelector('#proc-organo').addEventListener('change', e => {
                 form.querySelector('#proc-organo-otro').classList.toggle('hidden', e.target.value !== 'otros');
             });
+
             form.querySelectorAll('input[name="tipoSecuestro"]').forEach(radio => {
                 radio.addEventListener('change', e => {
                     const detailsDiv = document.getElementById('responsable-details');
+                    const commonInputClasses = "w-full px-3 py-2 mt-1 bg-white border border-gray-300 rounded-lg";
                     if (e.target.value === 'CON RESPONSABLE') {
                         detailsDiv.innerHTML = `<label class="block text-sm font-medium text-gray-700">Tipo de Responsable</label><div class="mt-2 space-x-6"><label class="inline-flex items-center"><input type="radio" name="tipoResponsable" value="interno" class="text-accent-600 focus:ring-accent-500"> <span class="ml-2">Interno</span></label><label class="inline-flex items-center"><input type="radio" name="tipoResponsable" value="visita" class="text-accent-600 focus:ring-accent-500"> <span class="ml-2">Visita</span></label><label class="inline-flex items-center"><input type="radio" name="tipoResponsable" value="agente" class="text-accent-600 focus:ring-accent-500"> <span class="ml-2">Agente</span></label></div><div id="responsable-specific-fields" class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"></div>`;
                         setupResponsableTypeListeners();
@@ -750,6 +760,7 @@
                 });
             });
 
+            // Item-specific fields logic (cannot be delegated easily as it's dynamic)
             const itemTypeSelect = form.querySelector('#item-type');
             const itemSubtypeSelect = form.querySelector('#item-subtype');
             const specificFieldsDiv = form.querySelector('#item-specific-fields');
@@ -803,29 +814,84 @@
                 let currentItems = JSON.parse(form.dataset.tempItems || '[]');
                 currentItems.push(newItem);
                 form.dataset.tempItems = JSON.stringify(currentItems);
-                updateLiveSynthesis(currentItems);
+                triggerSynthesisUpdate();
                 resetItemForm();
             });
+
+            // Listener for the new copy button
+            document.getElementById('copy-synthesis-btn').addEventListener('click', copySynthesisToClipboard);
 
             form.addEventListener('submit', handleSaveProcedure);
         }
         
         function updateLiveSynthesis(items) {
             const container = document.getElementById('live-synthesis');
-            if (items.length === 0) {
-                container.innerHTML = 'Aún no se han añadido elementos a este procedimiento.';
+            const form = document.getElementById('procedure-form');
+            if (!container || !form) return;
+
+            // Start with an empty state if no items are added yet and fields are empty
+            const tipoSecuestroRadio = form.querySelector('input[name="tipoSecuestro"]:checked');
+            if (items.length === 0 && !tipoSecuestroRadio) {
+                 container.innerHTML = 'Aún no se han añadido elementos a este procedimiento.';
                 return;
             }
-            container.innerHTML = items.map((item, index) => {
-                let detailsText = Object.entries(item.details)
-                    .map(([key, value]) => {
-                        const fieldConfig = ELEMENTOS_CONFIG[item.type][item.subtype].find(f => f.name === key);
-                        if (!value) return '';
-                        return `<li><strong class="font-medium text-gray-800">${fieldConfig.label}:</strong> ${value === true ? 'Sí' : value}</li>`;
-                    }).join('');
-                if (item.observaciones) { detailsText += `<li><strong class="font-medium text-gray-800">Observaciones:</strong> ${item.observaciones}</li>`; }
-                return `<div class="mb-3 p-3 bg-white border rounded-md"><p class="font-bold text-accent-700">${index + 1}. ${item.subtype}</p><ul class="list-disc list-inside text-xs pl-2 mt-1 space-y-1">${detailsText}</ul></div>`;
-            }).join('');
+
+            // 1. Get "Responsable" info
+            let synthesisText = '';
+            const tipoSecuestro = tipoSecuestroRadio.value;
+
+            if (tipoSecuestro === 'SIN RESPONSABLE') {
+                const obs = form.querySelector('#sin-responsable-obs')?.value.trim();
+                synthesisText += `Procedimiento sin responsable identificado.`;
+                if (obs) {
+                    synthesisText += ` Observaciones del hallazgo: "${obs}".`;
+                }
+            } else {
+                const responsableData = getResponsableData(form);
+                let responsableDetails = '';
+                switch (responsableData.tipo) {
+                    case 'interno':
+                        responsableDetails = `un interno identificado como ${responsableData['resp-nombre'] || '...'}, legajo ${responsableData['resp-legajo'] || '...'}, del pabellón ${responsableData['resp-pabellon'] || '...'}`;
+                        break;
+                    case 'visita':
+                        responsableDetails = `una visita identificada como ${responsableData['resp-visita-apellido'] || '...'}, ${responsableData['resp-visita-nombre'] || '...'} con DNI ${responsableData['resp-visita-dni'] || '...'}, quien visitaba al interno ${responsableData['resp-interno-apellido'] || '...'}, ${responsableData['resp-interno-nombre'] || '...'} (Legajo ${responsableData['resp-interno-legajo'] || '...'})`;
+                        break;
+                    case 'agente':
+                        responsableDetails = `un agente identificado como ${responsableData['resp-agente-apellido'] || '...'}, ${responsableData['resp-agente-nombre'] || '...'} con DNI ${responsableData['resp-agente-dni'] || '...'}`;
+                        break;
+                    default:
+                        responsableDetails = 'un responsable (aún sin especificar tipo)';
+                }
+                synthesisText += `Procedimiento con responsable identificado: ${responsableDetails}.`;
+            }
+
+            // 2. Get "Items" info
+            if (items.length > 0) {
+                synthesisText += ' Se procede al secuestro de: ';
+                const itemsText = items.map((item, index) => {
+                    let detailsText = Object.entries(item.details)
+                        .map(([key, value]) => {
+                            if (value === false || value === '' || value === null) return '';
+                            const fieldConfig = ELEMENTOS_CONFIG[item.type][item.subtype].find(f => f.name === key);
+                            const label = fieldConfig ? fieldConfig.label.toLowerCase() : key;
+                            return `${label}: ${value === true ? 'Sí' : value}`;
+                        }).filter(Boolean).join(', ');
+
+                    let itemDescription = `<strong>${item.subtype}</strong>`;
+                    if (detailsText) {
+                        itemDescription += ` con las siguientes características: ${detailsText}`;
+                    }
+                    if (item.observaciones) {
+                        itemDescription += ` (Observaciones: ${item.observaciones})`;
+                    }
+                    return itemDescription;
+                }).join('; y ');
+                synthesisText += itemsText + '.';
+            } else {
+                synthesisText += ' Aún no se han añadido elementos a este procedimiento.'
+            }
+
+            container.innerHTML = `<p class="text-sm text-gray-800 leading-relaxed">${synthesisText}</p>`;
         }
 
         function resetItemForm() {
@@ -853,8 +919,8 @@
         }
         
         function getResponsableData(form) {
-            const tipoSecuestro = form.querySelector('input[name="tipoSecuestro"]:checked').value;
-            if (tipoSecuestro === 'SIN RESPONSABLE') {
+            const tipoSecuestroRadio = form.querySelector('input[name="tipoSecuestro"]:checked');
+            if (!tipoSecuestroRadio || tipoSecuestroRadio.value === 'SIN RESPONSABLE') {
                 const obsTextarea = document.getElementById('sin-responsable-obs');
                 return { tipo: 'Ninguno', observaciones: obsTextarea ? obsTextarea.value || '' : '' };
             }
@@ -1333,6 +1399,44 @@
                 }
             );
         }
+
+        function copySynthesisToClipboard() {
+            const synthesisDiv = document.getElementById('live-synthesis');
+            if (!synthesisDiv) return;
+
+            const textToCopy = synthesisDiv.innerText;
+
+            if (!textToCopy || textToCopy.includes('Aún no se han añadido elementos')) {
+                showMessage('Síntesis Vacía', 'No hay texto para copiar.');
+                return;
+            }
+            
+            const textArea = document.createElement("textarea");
+            try {
+                // Prevent flashing on screen
+                textArea.style.position = 'fixed';
+                textArea.style.top = '-9999px';
+                textArea.style.left = '-9999px';
+                
+                textArea.value = textToCopy;
+                document.body.appendChild(textArea);
+                textArea.select();
+                
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    showMessage('Copiado', 'La síntesis ha sido copiada al portapapeles.');
+                } else {
+                     showMessage('Error', 'No se pudo copiar el texto automáticamente.');
+                }
+            } catch (err) {
+                console.error('Error al copiar texto: ', err);
+                showMessage('Error', 'No se pudo copiar el texto al portapapeles.');
+            } finally {
+                if(textArea) {
+                     document.body.removeChild(textArea);
+                }
+            }
+        }
         
         // --- MODALES Y DETALLES ---
 
@@ -1362,13 +1466,34 @@
         function openDetailsModal(procId) {
             const proc = allProcedures.find(p => p.id === procId);
             if (!proc) {
-                showMessage("Error", "No se encontraron los detalles para el secuestro seleccionado. Puede que haya sido eliminado.");
+                showMessage("Error", "No se encontraron los detalles para el secuestro seleccionado.");
                 return;
             }
             
             document.getElementById('details-modal-title').textContent = 'Detalles del Procedimiento';
             const contentDiv = document.getElementById('details-content');
-            contentDiv.innerHTML = generateProcedureDetailsHtml(proc);
+            
+            let detailsHtml = `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Datos del Hecho</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"><div><strong class="text-gray-500 block">Fecha:</strong> <span class="text-gray-800">${proc.datetime.toLocaleDateString('es-AR')}</span></div><div><strong class="text-gray-500 block">Sector:</strong> <span class="text-gray-800">${proc.sector}</span></div><div><strong class="text-gray-500 block">Órgano Actuante:</strong> <span class="text-gray-800">${proc.organo}</span></div><div><strong class="text-gray-500 block">Registrado por:</strong> <span class="text-gray-800">${proc.createdByName}</span></div></div></div>`;
+            let responsableHtml = '';
+            if (proc.tipoSecuestro === 'SIN RESPONSABLE') { responsableHtml = `<p>Hallazgo sin responsable.</p><p class="mt-1 text-gray-600 text-sm"><strong>Observaciones:</strong> ${proc.responsable.observaciones || 'Ninguna'}</p>`;
+            } else { responsableHtml = Object.entries(proc.responsable).map(([key, value]) => { if (!value || key === 'tipo') return ''; return `<div><strong class="text-gray-500 block capitalize">${key.replace('resp-','').replace('-',' ').replace('nombre', 'Nombres').replace('legajo', 'Legajo N°')}:</strong> <span class="text-gray-800">${value}</span></div>`; }).join(''); }
+            detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Responsable (${proc.responsable.tipo})</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">${responsableHtml}</div></div>`;
+            let itemsHtml = proc.items.map(item => {
+                 let itemDetails = Object.entries(item.details).map(([key, value]) => { const fieldConfig = ELEMENTOS_CONFIG[item.type][item.subtype].find(f => f.name === key); if (!value && value !== false) return ''; return `<li class="text-xs"><strong class="font-medium text-gray-600">${fieldConfig.label}:</strong> ${value === true ? 'Sí' : value}</li>`; }).join('');
+                 if(item.observaciones) { itemDetails += `<li class="text-xs"><strong class="font-medium text-gray-600">Obs:</strong> ${item.observaciones}</li>`; }
+                 return `<div class="p-3 border rounded-md bg-white"><p class="font-bold text-gray-800">${item.subtype} <span class="text-gray-500 font-normal">(${item.type})</span></p><ul class="list-disc list-inside ml-2 mt-1 space-y-1">${itemDetails}</ul></div>`;
+            }).join('');
+            detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Elementos Secuestrados</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">${itemsHtml}</div></div>`;
+            let actuacionesHtml = '';
+            if (proc.actuaciones) {
+                 actuacionesHtml = `<div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"><div><strong class="text-gray-500 block">Tipo:</strong> <span class="text-gray-800">${proc.actuaciones.tipo}</span></div><div><strong class="text-gray-500 block">Número:</strong> <span class="text-gray-800">${proc.actuaciones.numero}</span></div>${proc.actuaciones.autoridad ? `<div><strong class="text-gray-500 block">Autoridad:</strong> <span class="text-gray-800">${proc.actuaciones.autoridad}</span></div>` : ''}</div>`;
+                 if (proc.actuaciones.fileURL) {
+                    actuacionesHtml += `<div class="mt-4 border-t pt-4"><p class="text-sm font-semibold text-gray-700 mb-2">Archivo Adjunto</p><a href="${proc.actuaciones.fileURL}" target="_blank" rel="noopener noreferrer" class="border-2 border-dashed rounded-lg p-4 text-center bg-white block hover:bg-gray-50"><i class="far fa-file-pdf fa-3x text-red-500 mb-2"></i><p class="font-semibold text-gray-800">${proc.actuaciones.fileName}</p><p class="text-xs text-blue-600 mt-1 underline">Ver Archivo</p></a></div>`;
+                 }
+            } else { actuacionesHtml = `<p class="text-sm text-gray-500">Aún no se han cargado actuaciones.</p>`; }
+            detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Actuaciones</h4>${actuacionesHtml}</div>`;
+
+            contentDiv.innerHTML = detailsHtml;
             document.getElementById('procedure-details-modal').classList.remove('hidden');
             document.getElementById('procedure-details-modal').classList.add('flex');
         }
@@ -1576,45 +1701,45 @@
                 </div>`;
             
             setupActivityLogFilters();
-            loadAndDisplayActivityLog();
+            loadAndDisplayActivityLog(); // Carga inicial
 
+            // Add event listener for row clicks
             const tableBody = document.getElementById('activity-log-table-body');
             if(tableBody){
                 tableBody.addEventListener('click', (e) => {
                     const row = e.target.closest('tr');
-                    if (!row || !row.dataset.logId) return;
+                    if (!row || !row.dataset.id) return;
 
-                    const logId = row.dataset.logId;
-                    const log = allLogs.find(l => l.id === logId);
-                    if (!log) {
-                        console.error("No se encontró la entrada de registro para el ID:", logId);
+                    const id = row.dataset.id;
+                    const type = row.dataset.actionType;
+                    const actionName = row.dataset.actionName;
+
+                    if (actionName && actionName.toLowerCase().includes('eliminación')) {
+                        showMessage("Registro Eliminado", "Los detalles de este registro ya no están disponibles porque fue eliminado.");
                         return;
                     }
-                    
-                    if (log.action === 'Eliminación de Secuestro' || log.action === 'Actualización de Actuaciones') {
-                        openHistoricDetailsModal(log);
-                    } else if (log.details.procId) {
-                        openDetailsModal(log.details.procId);
-                    } else if (log.details.denunciaId) {
-                        openDenunciaDetailsModal(log.details.denunciaId);
+
+                    if (type === 'secuestro') {
+                        openDetailsModal(id);
+                    } else if (type === 'denuncia') {
+                        openDenunciaDetailsModal(id);
                     }
                 });
             }
         }
 
         function setupActivityLogFilters() {
+            // Populate user and action dropdowns from allLogs data
             const userSelect = document.getElementById('log-filter-user');
             const actionSelect = document.getElementById('log-filter-action');
+
             if (!userSelect || !actionSelect) return;
 
             const users = [...new Set(allLogs.map(log => log.userName))].sort();
             const actions = [...new Set(allLogs.map(log => log.action))].sort();
 
-            const currentSelectedUser = userSelect.value;
-            const currentSelectedAction = actionSelect.value;
-
-            userSelect.innerHTML = '<option value="todos">Todos</option>' + users.map(user => `<option value="${user}" ${user === currentSelectedUser ? 'selected' : ''}>${user}</option>`).join('');
-            actionSelect.innerHTML = '<option value="todos">Todas</option>' + actions.map(action => `<option value="${action}" ${action === currentSelectedAction ? 'selected' : ''}>${action}</option>`).join('');
+            userSelect.innerHTML = '<option value="todos">Todos</option>' + users.map(user => `<option value="${user}">${user}</option>`).join('');
+            actionSelect.innerHTML = '<option value="todos">Todas</option>' + actions.map(action => `<option value="${action}">${action}</option>`).join('');
             
             document.getElementById('log-apply-filter-btn').addEventListener('click', () => {
                 loadAndDisplayActivityLog(getCurrentLogFilters());
@@ -1633,6 +1758,7 @@
         function loadAndDisplayActivityLog(filters = {}) {
             let filteredLogs = [...allLogs];
             
+            // Apply filters
             if (filters.startDate) { const start = new Date(filters.startDate + 'T00:00:00'); filteredLogs = filteredLogs.filter(l => l.timestamp >= start); }
             if (filters.endDate) { const end = new Date(filters.endDate + 'T23:59:59'); filteredLogs = filteredLogs.filter(l => l.timestamp <= end); }
             if (filters.user && filters.user !== 'todos') { filteredLogs = filteredLogs.filter(l => l.userName === filters.user); }
@@ -1655,13 +1781,20 @@
 
             tableBody.innerHTML = filteredLogs.map(log => {
                 const date = log.timestamp.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-                const detailsString = Object.entries(log.details)
-                    .filter(([key]) => key !== 'deletedData' && key !== 'before' && key !== 'after') // Don't show complex objects directly
-                    .map(([key, value]) => `${key}: ${value}`).join('; ');
+                const detailsString = Object.entries(log.details).map(([key, value]) => `${key}: ${value}`).join('; ');
 
-                let isClickable = log.details.procId || log.details.denunciaId;
-                let rowClasses = `hover:bg-gray-50 border-b ${isClickable ? 'cursor-pointer' : ''}`;
-                let rowAttributes = isClickable ? `data-log-id="${log.id}" title="Haga clic para ver detalles"` : '';
+                let rowAttributes = '';
+                let rowClasses = 'hover:bg-gray-50 border-b';
+                const secuestroId = log.details.procId;
+                const denunciaId = log.details.denunciaId;
+
+                if (secuestroId) {
+                    rowAttributes = `data-id="${secuestroId}" data-action-type="secuestro" data-action-name="${log.action}" title="Haga clic para ver detalles"`;
+                    rowClasses += ' cursor-pointer';
+                } else if (denunciaId) {
+                    rowAttributes = `data-id="${denunciaId}" data-action-type="denuncia" data-action-name="${log.action}" title="Haga clic para ver detalles"`;
+                    rowClasses += ' cursor-pointer';
+                }
 
                 return `
                     <tr class="${rowClasses}" ${rowAttributes}>
@@ -1673,116 +1806,6 @@
             }).join('');
         }
 
-        function generateProcedureDetailsHtml(proc, excludeSections = []) {
-            if (!proc) return '';
-
-            let detailsHtml = '';
-            
-            let procDate = proc.datetime;
-            if (procDate && procDate.seconds) { 
-                procDate = new Timestamp(procDate.seconds, procDate.nanoseconds).toDate();
-            }
-
-            if (!excludeSections.includes('hecho')) {
-                detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Datos del Hecho</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"><div><strong class="text-gray-500 block">Fecha:</strong> <span class="text-gray-800">${procDate.toLocaleDateString('es-AR')}</span></div><div><strong class="text-gray-500 block">Sector:</strong> <span class="text-gray-800">${proc.sector}</span></div><div><strong class="text-gray-500 block">Órgano Actuante:</strong> <span class="text-gray-800">${proc.organo}</span></div><div><strong class="text-gray-500 block">Registrado por:</strong> <span class="text-gray-800">${proc.createdByName}</span></div></div></div>`;
-            }
-
-            if (!excludeSections.includes('responsable') && proc.responsable) {
-                let responsableHtml = '';
-                if (proc.tipoSecuestro === 'SIN RESPONSABLE') { 
-                    responsableHtml = `<p>Hallazgo sin responsable.</p><p class="mt-1 text-gray-600 text-sm"><strong>Observaciones:</strong> ${proc.responsable.observaciones || 'Ninguna'}</p>`;
-                } else { 
-                    responsableHtml = Object.entries(proc.responsable).map(([key, value]) => { 
-                        if (!value || key === 'tipo') return ''; 
-                        return `<div><strong class="text-gray-500 block capitalize">${key.replace('resp-','').replace(/-/g,' ').replace('nombre', 'Nombres').replace('legajo', 'Legajo N°')}:</strong> <span class="text-gray-800">${value}</span></div>`; 
-                    }).join(''); 
-                }
-                detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Responsable (${proc.responsable.tipo})</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">${responsableHtml}</div></div>`;
-            }
-            
-            if (!excludeSections.includes('items')) {
-                let itemsHtml = (proc.items || []).map(item => {
-                    let itemDetails = Object.entries(item.details).map(([key, value]) => { 
-                        const fieldConfig = ELEMENTOS_CONFIG[item.type] && ELEMENTOS_CONFIG[item.type][item.subtype] ? ELEMENTOS_CONFIG[item.type][item.subtype].find(f => f.name === key) : null;
-                        if (!value && value !== false) return ''; 
-                        return `<li class="text-xs"><strong class="font-medium text-gray-600">${fieldConfig ? fieldConfig.label : key}:</strong> ${value === true ? 'Sí' : value}</li>`; 
-                    }).join('');
-                    if(item.observaciones) { itemDetails += `<li class="text-xs"><strong class="font-medium text-gray-600">Obs:</strong> ${item.observaciones}</li>`; }
-                    return `<div class="p-3 border rounded-md bg-white"><p class="font-bold text-gray-800">${item.subtype} <span class="text-gray-500 font-normal">(${item.type})</span></p><ul class="list-disc list-inside ml-2 mt-1 space-y-1">${itemDetails}</ul></div>`;
-                }).join('');
-                detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Elementos Secuestrados</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">${itemsHtml}</div></div>`;
-            }
-
-            if (!excludeSections.includes('actuaciones')) {
-                let actuacionesHtml = '';
-                if (proc.actuaciones) {
-                    actuacionesHtml = `<div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"><div><strong class="text-gray-500 block">Tipo:</strong> <span class="text-gray-800">${proc.actuaciones.tipo}</span></div><div><strong class="text-gray-500 block">Número:</strong> <span class="text-gray-800">${proc.actuaciones.numero}</span></div>${proc.actuaciones.autoridad ? `<div><strong class="text-gray-500 block">Autoridad:</strong> <span class="text-gray-800">${proc.actuaciones.autoridad}</span></div>` : ''}</div>`;
-                    if (proc.actuaciones.fileURL) {
-                        actuacionesHtml += `<div class="mt-4 border-t pt-4"><p class="text-sm font-semibold text-gray-700 mb-2">Archivo Adjunto</p><a href="${proc.actuaciones.fileURL}" target="_blank" rel="noopener noreferrer" class="border-2 border-dashed rounded-lg p-4 text-center bg-white block hover:bg-gray-50"><i class="far fa-file-pdf fa-3x text-red-500 mb-2"></i><p class="font-semibold text-gray-800">${proc.actuaciones.fileName}</p><p class="text-xs text-blue-600 mt-1 underline">Ver Archivo</p></a></div>`;
-                    }
-                } else { 
-                    actuacionesHtml = `<p class="text-sm text-gray-500">Aún no se han cargado actuaciones.</p>`; 
-                }
-                detailsHtml += `<div class="p-4 border rounded-lg bg-gray-50"><h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Actuaciones</h4>${actuacionesHtml}</div>`;
-            }
-            
-            return detailsHtml;
-        }
-
-        function openHistoricDetailsModal(log) {
-            const contentDiv = document.getElementById('details-content');
-            let detailsHtml = '';
-
-            if (log.action === 'Eliminación de Secuestro' && log.details.deletedData) {
-                document.getElementById('details-modal-title').textContent = 'Detalles de Secuestro Eliminado';
-                const procData = log.details.deletedData;
-                detailsHtml = generateProcedureDetailsHtml(procData);
-                detailsHtml = `<div class="p-4 mb-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-r-lg"><h4 class="font-bold">Registro Histórico</h4><p>Estos son los detalles del secuestro tal como existían antes de ser eliminado el ${log.timestamp.toLocaleString('es-AR')}.</p></div>` + detailsHtml;
-            
-            } else if (log.action === 'Actualización de Actuaciones') {
-                document.getElementById('details-modal-title').textContent = 'Historial de Cambios: Actuaciones';
-                const before = log.details.before;
-                const after = log.details.after;
-                
-                const renderActuacion = (act, title) => {
-                    if (!act) return `<div class="p-3 border rounded-md bg-white"><p class="font-bold text-gray-800">${title}</p><p class="text-sm text-gray-500 mt-2">Sin datos.</p></div>`;
-                    return `<div class="p-3 border rounded-md bg-white">
-                        <p class="font-bold text-gray-800">${title}</p>
-                        <ul class="list-disc list-inside ml-2 mt-2 space-y-1 text-sm">
-                            <li><strong>Tipo:</strong> ${act.tipo || '-'}</li>
-                            <li><strong>Número:</strong> ${act.numero || '-'}</li>
-                            <li><strong>Autoridad:</strong> ${act.autoridad || '-'}</li>
-                            <li><strong>Archivo:</strong> ${act.fileName || 'Ninguno'}</li>
-                        </ul>
-                    </div>`;
-                };
-                
-                detailsHtml = `<div class="p-4 mb-4 bg-yellow-50 border-l-4 border-yellow-500 text-yellow-800 rounded-r-lg"><h4 class="font-bold">Registro de Edición</h4><p>Cambio registrado por ${log.userName} el ${log.timestamp.toLocaleString('es-AR')}.</p></div>
-                <div class="p-4 border rounded-lg bg-gray-50">
-                    <h4 class="text-lg font-semibold text-accent-700 mb-3 border-b pb-2">Comparación de Actuaciones</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                        ${renderActuacion(before, 'Estado Anterior')}
-                        ${renderActuacion(after, 'Estado Nuevo')}
-                    </div>
-                </div>`;
-                
-                const proc = allProcedures.find(p => p.id === log.details.procId);
-                if (proc) {
-                    detailsHtml += generateProcedureDetailsHtml(proc, ['actuaciones']); 
-                } else {
-                    detailsHtml += `<p class="mt-4 text-sm text-gray-500">El secuestro original (ID: ${log.details.procId}) podría haber sido eliminado.</p>`;
-                }
-            } else {
-                contentDiv.innerHTML = `<p class="p-6">No hay detalles históricos para mostrar para esta acción.</p>`;
-                document.getElementById('procedure-details-modal').classList.add('hidden');
-                document.getElementById('procedure-details-modal').classList.remove('flex');
-                return;
-            }
-
-            contentDiv.innerHTML = detailsHtml;
-            document.getElementById('procedure-details-modal').classList.remove('hidden');
-            document.getElementById('procedure-details-modal').classList.add('flex');
-        }
 
         // Inicializar la aplicación
         initApp();
